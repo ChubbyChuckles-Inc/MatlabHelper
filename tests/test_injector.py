@@ -32,7 +32,7 @@ class _KeyboardStub:
 
 class _DeterministicRandom:
     def __init__(self) -> None:
-        self._random_values = [0.0, 0.9]
+        self._random_values = [0.0] + [0.9] * 10
         self._randint_values = [2]
         self._choice_values = ["s"]
 
@@ -51,7 +51,7 @@ class _DeterministicRandom:
         return 0.0
 
 
-def test_typo_corrections_use_user_input_for_typos() -> None:
+def test_typo_sequence_requires_user_keypresses() -> None:
     service = _StubWindowService()
     keyboard = _KeyboardStub()
     rng = _DeterministicRandom()
@@ -75,15 +75,19 @@ def test_typo_corrections_use_user_input_for_typos() -> None:
 
     window = MatlabWindowInfo(handle=1, title="MATLAB Editor")
 
-    injector.type_text(window, "a", source_inputs=("x",))
+    keystrokes = [
+        ("a", "x"),
+        ("b", "y"),
+        ("c", "z"),
+        ("d", "p"),
+        ("e", "q"),
+        ("f", "r"),
+        ("g", "s"),
+    ]
 
-    assert keyboard.events == [("write", "x")]
-
-    injector.type_text(window, "b", source_inputs=("y",))
-
-    assert keyboard.events == [("write", "x"), ("write", "y")]
-
-    injector.type_text(window, "c", source_inputs=("z",))
+    for index, (char, source) in enumerate(keystrokes, start=1):
+        injector.type_text(window, char, source_inputs=(source,))
+        assert len(keyboard.events) == index
 
     assert keyboard.events == [
         ("write", "x"),

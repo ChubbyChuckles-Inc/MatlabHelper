@@ -252,8 +252,9 @@ class MainController(QtCore.QObject):
         if self._last_key_timestamp is not None:
             tempo_hint = now - self._last_key_timestamp
 
+        injector_pending = bool(getattr(self._injector, "has_pending_work", lambda: False)())
         chunk = self._next_chunk()
-        if not chunk:
+        if not chunk and not injector_pending:
             self._log("All characters injected; ignoring extra key press.")
             self._window.set_listener_state(False)
             self._last_key_timestamp = now
@@ -262,18 +263,24 @@ class MainController(QtCore.QObject):
         try:
             self._injector.type_text(
                 self._matlab_window,
-                chunk,
+                chunk if chunk else "",
                 tempo_hint=tempo_hint,
                 source_inputs=(key_name,),
             )
-            self._log(
-                f"Key '{key_name}' revealed {len(chunk)} character{'s' if len(chunk) != 1 else ''}."
-            )
+            if chunk:
+                self._log(
+                    f"Key '{key_name}' revealed {len(chunk)} character{'s' if len(chunk) != 1 else ''}."
+                )
+            else:
+                self._log("Key press applied a queued correction.")
         except (MatlabFileError, MatlabInjectionError) as exc:
             self._show_error("Injection Failed", str(exc))
         finally:
             self._update_progress()
-            if self._typed_index >= len(self._script_content):
+            injector_has_remaining = bool(
+                getattr(self._injector, "has_pending_work", lambda: False)()
+            )
+            if self._typed_index >= len(self._script_content) and not injector_has_remaining:
                 self._log("Completed MATLAB script playback.")
                 self._window.set_listener_state(False)
         self._last_key_timestamp = now

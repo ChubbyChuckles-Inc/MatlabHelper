@@ -20,9 +20,43 @@ build_exe_options = {
     "include_files": [],
 }
 
+shortcut_table = [
+    (
+        "DesktopShortcut",
+        "DesktopFolder",
+        APP_NAME,
+        "TARGETDIR",
+        f"[TARGETDIR]{APP_NAME}.exe",
+        None,
+        APP_NAME,
+        None,
+        None,
+        None,
+        None,
+        "TARGETDIR",
+    ),
+    (
+        "StartMenuShortcut",
+        "ProgramMenuFolder",
+        APP_NAME,
+        "TARGETDIR",
+        f"[TARGETDIR]{APP_NAME}.exe",
+        None,
+        APP_NAME,
+        None,
+        None,
+        None,
+        None,
+        "TARGETDIR",
+    ),
+]
+
+msi_data = {"Shortcut": shortcut_table}
+
 bdist_msi_options = {
     "upgrade_code": "{7D1E385F-540D-4EF5-B4F2-39C3F8C9D91A}",
     "install_icon": str(ICON_PATH) if ICON_PATH.exists() else None,
+    "data": msi_data,
 }
 
 setup(

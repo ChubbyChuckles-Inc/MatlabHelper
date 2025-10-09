@@ -6,7 +6,8 @@ import random
 import string
 import time
 from collections import deque
-from typing import Deque, Dict, Iterable, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Deque, Dict, Optional, Sequence, Tuple
 
 import keyboard
 
@@ -17,6 +18,14 @@ from src.services.window_service import MatlabWindowDetectionError, MatlabWindow
 
 class MatlabInjectionError(RuntimeError):
     """Raised when content injection into MATLAB fails."""
+
+
+@dataclass
+class _CharState:
+    char: str
+    status: str = "new"
+    mistakes_remaining: int = 0
+    backspaces_remaining: int = 0
 
 
 class MatlabInjector:
@@ -37,9 +46,7 @@ class MatlabInjector:
         self._rng = rng or random.Random()
         self._settings = (settings or TypingSettings.from_defaults()).clamped()
         self._last_window_handle: Optional[int] = None
-        self._pending_backspaces = 0
-        self._pending_chars = deque()  # type: Deque[str]
-        self._error_budget = 0
+        self._char_queue: Deque[_CharState] = deque()
 
     def type_text(
         self,
@@ -61,9 +68,15 @@ class MatlabInjector:
             Optional duration (in seconds) since the previous triggering key event. Used to
             bias the typing cadence so that quick keyboard presses yield faster typing and
             slower presses feel more deliberate.
+        source_inputs:
+            Raw key names captured from the user for each triggering keystroke. When provided,
+            typo characters mirror these inputs so that every injected event corresponds to a
+            physical key press.
         """
 
-        if not text:
+        inputs = tuple(source_inputs) if source_inputs is not None else ()
+
+        if not text and not inputs and not self._char_queue:
             return
 
         if window.handle != self._last_window_handle:
@@ -74,11 +87,16 @@ class MatlabInjector:
 
         try:
             delay_range = self._compute_delay_range(tempo_hint)
-            for index, char in enumerate(text):
-                source_input: Optional[str] = None
-                if source_inputs is not None and index < len(source_inputs):
-                    source_input = source_inputs[index]
-                self._type_character_with_variation(char, delay_range, source_input)
+            total = max(len(text), len(inputs))
+            if total == 0:
+                self._process_next_event(delay_range, None)
+            else:
+                for index in range(total):
+                    char = text[index] if index < len(text) else None
+                    source_input = inputs[index] if index < len(inputs) else None
+                    if char is not None:
+                        self._char_queue.append(_CharState(char=char))
+                    self._process_next_event(delay_range, source_input)
         except Exception as exc:  # pragma: no cover - keyboard library failure
             raise MatlabInjectionError("Failed to type characters into MATLAB editor.") from exc
 
@@ -108,52 +126,63 @@ class MatlabInjector:
         scaled_max = max(scaled_min, base_max * factor)
         return scaled_min, scaled_max
 
-    def _type_character_with_variation(
-        self, char: str, delay_range: Tuple[float, float], source_input: Optional[str]
+    def _process_next_event(
+        self, delay_range: Tuple[float, float], source_input: Optional[str]
     ) -> None:
-        self._flush_pending_corrections(delay_range)
-
-        if self._error_budget > 0:
-            self._emit_error_character(char, delay_range, source_input)
+        if not self._char_queue:
             return
 
-        if char not in {"\n", "\r", "\t"} and self._should_simulate_error():
+        state = self._char_queue[0]
+
+        if state.status == "new":
+            if state.char in {"\n", "\r", "\t"} or not self._should_simulate_error():
+                self._type_character(state.char)
+                if state.char != "\r":
+                    self._sleep_random(delay_range)
+                self._char_queue.popleft()
+                return
             mistakes = self._rng.randint(
                 self._settings.error_min_burst, self._settings.error_max_burst
             )
-            if mistakes > 0:
-                self._error_budget = mistakes
-                self._emit_error_character(char, delay_range, source_input)
+            if mistakes <= 0:
+                self._type_character(state.char)
+                if state.char != "\r":
+                    self._sleep_random(delay_range)
+                self._char_queue.popleft()
                 return
+            state.status = "typo"
+            state.mistakes_remaining = mistakes
+            state.backspaces_remaining = mistakes
 
-        self._type_character(char)
-        if char != "\r":
-            self._sleep_random(delay_range)
-
-    def _flush_pending_corrections(self, delay_range: Tuple[float, float]) -> None:
-        if self._error_budget > 0:
+        if state.status == "typo":
+            self._emit_wrong_char(state.char, delay_range, source_input)
+            state.mistakes_remaining -= 1
+            if state.mistakes_remaining <= 0:
+                state.status = "backspace" if state.backspaces_remaining > 0 else "type"
             return
-        while self._pending_backspaces > 0:
+
+        if state.status == "backspace":
             self._keyboard.send("backspace")
             self._sleep_random(delay_range)
-            self._pending_backspaces -= 1
-        while self._pending_chars:
-            correction = self._pending_chars.popleft()
-            self._type_character(correction)
-            if correction != "\r":
-                self._sleep_random(delay_range)
+            state.backspaces_remaining -= 1
+            if state.backspaces_remaining <= 0:
+                state.status = "type"
+            return
 
-    def _emit_error_character(
+        if state.status == "type":
+            self._type_character(state.char)
+            if state.char != "\r":
+                self._sleep_random(delay_range)
+            self._char_queue.popleft()
+            return
+
+    def _emit_wrong_char(
         self, target_char: str, delay_range: Tuple[float, float], source_input: Optional[str]
     ) -> None:
         wrong_char = self._resolve_input_character(source_input, target_char)
         self._type_character(wrong_char)
         if wrong_char != "\r":
             self._sleep_random(delay_range)
-        self._pending_backspaces += 1
-        self._pending_chars.append(target_char)
-        if self._error_budget > 0:
-            self._error_budget -= 1
 
     def _resolve_input_character(self, source_input: Optional[str], target: str) -> str:
         normalized = self._normalize_input_key(source_input)
@@ -209,6 +238,9 @@ class MatlabInjector:
 
     def reset_focus_cache(self) -> None:
         self._last_window_handle = None
+
+    def has_pending_work(self) -> bool:
+        return bool(self._char_queue)
 
 
 def _build_neighbor_lookup(rows: Sequence[str]) -> Dict[str, Tuple[str, ...]]:
