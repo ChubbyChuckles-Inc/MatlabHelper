@@ -5,7 +5,8 @@ from __future__ import annotations
 import random
 import string
 import time
-from typing import Dict, Iterable, Optional, Sequence, Tuple
+from collections import deque
+from typing import Deque, Dict, Iterable, Optional, Sequence, Tuple
 
 import keyboard
 
@@ -36,6 +37,8 @@ class MatlabInjector:
         self._rng = rng or random.Random()
         self._settings = (settings or TypingSettings.from_defaults()).clamped()
         self._last_window_handle: Optional[int] = None
+        self._pending_backspaces = 0
+        self._pending_chars = deque()  # type: Deque[str]
 
     def type_text(
         self,
@@ -101,6 +104,8 @@ class MatlabInjector:
         return scaled_min, scaled_max
 
     def _type_character_with_variation(self, char: str, delay_range: Tuple[float, float]) -> None:
+        self._flush_pending_corrections(delay_range)
+
         if char not in {"\n", "\r", "\t"} and self._should_simulate_error():
             mistakes = self._rng.randint(
                 self._settings.error_min_burst, self._settings.error_max_burst
@@ -109,13 +114,24 @@ class MatlabInjector:
                 typo = self._random_typo_character(char)
                 self._keyboard.write(typo, delay=0)
                 self._sleep_random(delay_range)
-            for _ in range(mistakes):
-                self._keyboard.send("backspace")
-                self._sleep_random(delay_range)
+            self._pending_backspaces += mistakes
+            self._pending_chars.append(char)
+            return
 
         self._type_character(char)
         if char != "\r":
             self._sleep_random(delay_range)
+
+    def _flush_pending_corrections(self, delay_range: Tuple[float, float]) -> None:
+        while self._pending_backspaces > 0:
+            self._keyboard.send("backspace")
+            self._sleep_random(delay_range)
+            self._pending_backspaces -= 1
+        while self._pending_chars:
+            correction = self._pending_chars.popleft()
+            self._type_character(correction)
+            if correction != "\r":
+                self._sleep_random(delay_range)
 
     def _sleep_random(self, delay_range: Tuple[float, float]) -> None:
         start, end = delay_range

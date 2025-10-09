@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-import base64
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
