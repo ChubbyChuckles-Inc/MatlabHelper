@@ -260,7 +260,12 @@ class MainController(QtCore.QObject):
             return
 
         try:
-            self._injector.type_text(self._matlab_window, chunk, tempo_hint=tempo_hint)
+            self._injector.type_text(
+                self._matlab_window,
+                chunk,
+                tempo_hint=tempo_hint,
+                source_inputs=(key_name,),
+            )
             self._log(
                 f"Key '{key_name}' revealed {len(chunk)} character{'s' if len(chunk) != 1 else ''}."
             )

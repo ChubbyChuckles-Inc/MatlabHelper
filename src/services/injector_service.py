@@ -39,6 +39,7 @@ class MatlabInjector:
         self._last_window_handle: Optional[int] = None
         self._pending_backspaces = 0
         self._pending_chars = deque()  # type: Deque[str]
+        self._error_budget = 0
 
     def type_text(
         self,
@@ -46,6 +47,7 @@ class MatlabInjector:
         text: str,
         *,
         tempo_hint: Optional[float] = None,
+        source_inputs: Optional[Sequence[str]] = None,
     ) -> None:
         """Focus *window* and type *text* character by character.
 
@@ -72,8 +74,11 @@ class MatlabInjector:
 
         try:
             delay_range = self._compute_delay_range(tempo_hint)
-            for char in text:
-                self._type_character_with_variation(char, delay_range)
+            for index, char in enumerate(text):
+                source_input: Optional[str] = None
+                if source_inputs is not None and index < len(source_inputs):
+                    source_input = source_inputs[index]
+                self._type_character_with_variation(char, delay_range, source_input)
         except Exception as exc:  # pragma: no cover - keyboard library failure
             raise MatlabInjectionError("Failed to type characters into MATLAB editor.") from exc
 
@@ -103,26 +108,31 @@ class MatlabInjector:
         scaled_max = max(scaled_min, base_max * factor)
         return scaled_min, scaled_max
 
-    def _type_character_with_variation(self, char: str, delay_range: Tuple[float, float]) -> None:
+    def _type_character_with_variation(
+        self, char: str, delay_range: Tuple[float, float], source_input: Optional[str]
+    ) -> None:
         self._flush_pending_corrections(delay_range)
+
+        if self._error_budget > 0:
+            self._emit_error_character(char, delay_range, source_input)
+            return
 
         if char not in {"\n", "\r", "\t"} and self._should_simulate_error():
             mistakes = self._rng.randint(
                 self._settings.error_min_burst, self._settings.error_max_burst
             )
-            for _ in range(mistakes):
-                typo = self._random_typo_character(char)
-                self._keyboard.write(typo, delay=0)
-                self._sleep_random(delay_range)
-            self._pending_backspaces += mistakes
-            self._pending_chars.append(char)
-            return
+            if mistakes > 0:
+                self._error_budget = mistakes
+                self._emit_error_character(char, delay_range, source_input)
+                return
 
         self._type_character(char)
         if char != "\r":
             self._sleep_random(delay_range)
 
     def _flush_pending_corrections(self, delay_range: Tuple[float, float]) -> None:
+        if self._error_budget > 0:
+            return
         while self._pending_backspaces > 0:
             self._keyboard.send("backspace")
             self._sleep_random(delay_range)
@@ -132,6 +142,32 @@ class MatlabInjector:
             self._type_character(correction)
             if correction != "\r":
                 self._sleep_random(delay_range)
+
+    def _emit_error_character(
+        self, target_char: str, delay_range: Tuple[float, float], source_input: Optional[str]
+    ) -> None:
+        wrong_char = self._resolve_input_character(source_input, target_char)
+        self._type_character(wrong_char)
+        if wrong_char != "\r":
+            self._sleep_random(delay_range)
+        self._pending_backspaces += 1
+        self._pending_chars.append(target_char)
+        if self._error_budget > 0:
+            self._error_budget -= 1
+
+    def _resolve_input_character(self, source_input: Optional[str], target: str) -> str:
+        normalized = self._normalize_input_key(source_input)
+        if normalized is not None:
+            return normalized
+        return self._random_typo_character(target)
+
+    def _normalize_input_key(self, key_name: Optional[str]) -> Optional[str]:
+        if not key_name:
+            return None
+        if len(key_name) == 1:
+            return key_name
+        mapped = _SPECIAL_KEY_MAPPING.get(key_name.lower())
+        return mapped
 
     def _sleep_random(self, delay_range: Tuple[float, float]) -> None:
         start, end = delay_range
@@ -238,3 +274,25 @@ _SHIFTED_TO_BASE: Dict[str, str] = {
 _BASE_TO_SHIFTED: Dict[str, str] = {base: shifted for shifted, base in _SHIFTED_TO_BASE.items()}
 
 _NEAR_KEY_LOOKUP: Dict[str, Tuple[str, ...]] = _build_neighbor_lookup(_QWERTY_ROWS)
+
+_SPECIAL_KEY_MAPPING: Dict[str, str] = {
+    "space": " ",
+    "spacebar": " ",
+    "enter": "\n",
+    "return": "\n",
+    "tab": "\t",
+    "comma": ",",
+    "period": ".",
+    "dot": ".",
+    "slash": "/",
+    "backslash": "\\",
+    "minus": "-",
+    "plus": "+",
+    "equal": "=",
+    "equals": "=",
+    "semicolon": ";",
+    "apostrophe": "'",
+    "quote": "'",
+    "bracketleft": "[",
+    "bracketright": "]",
+}

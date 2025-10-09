@@ -30,7 +30,7 @@ class StubWindowService:
 
 class StubInjector:
     def __init__(self, focus_hook: Callable[[MatlabWindowInfo], None]) -> None:
-        self.calls: list[tuple[MatlabWindowInfo, str, float | None]] = []
+        self.calls: list[tuple[MatlabWindowInfo, str, float | None, tuple[str, ...] | None]] = []
         self._focus_hook = focus_hook
 
     def type_text(
@@ -39,9 +39,10 @@ class StubInjector:
         content: str,
         *,
         tempo_hint: float | None = None,
+        source_inputs: tuple[str, ...] | None = None,
     ) -> None:
         self._focus_hook(window)
-        self.calls.append((window, content, tempo_hint))
+        self.calls.append((window, content, tempo_hint, source_inputs))
 
     def inject(self, window: MatlabWindowInfo, content: str) -> None:
         self.type_text(window, content)
@@ -102,9 +103,10 @@ def test_controller_injects_matlab_script(qtbot, tmp_path: Path, monkeypatch) ->
     monitor.fire("tab")
 
     assert injector.calls
-    injected_window, first_chunk, tempo = injector.calls[0]
+    injected_window, first_chunk, tempo, source_inputs = injector.calls[0]
     assert injected_window == service.window
     assert first_chunk == "d"
     assert tempo is None or tempo >= 0
+    assert source_inputs == ("space",)
     assert service.focus_calls == len(injector.calls)
     assert errors == []

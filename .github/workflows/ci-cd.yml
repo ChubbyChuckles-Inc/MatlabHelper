@@ -5,6 +5,9 @@ on:
     branches: ["*"]
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   build-test-package:
     runs-on: windows-latest
@@ -51,10 +54,11 @@ jobs:
         if: github.ref == 'refs/heads/master'
         shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $tag = "ci-${{ github.run_id }}-${{ github.run_attempt }}"
           $title = "Automated build ${{ github.run_number }}"
           $notes = "Automated MSI build for commit ${{ github.sha }}."
           $asset = "${{ steps.msi.outputs.path }}"
-          gh release create $tag $asset --target "${{ github.sha }}" --title $title --notes $notes
+          gh release create $tag $asset --repo "${{ github.repository }}" --target "${{ github.sha }}" --title $title --notes $notes

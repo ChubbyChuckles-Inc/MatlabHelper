@@ -33,7 +33,7 @@ class _KeyboardStub:
 class _DeterministicRandom:
     def __init__(self) -> None:
         self._random_values = [0.0, 0.9]
-        self._randint_values = [1]
+        self._randint_values = [2]
         self._choice_values = ["s"]
 
     def random(self) -> float:
@@ -51,7 +51,7 @@ class _DeterministicRandom:
         return 0.0
 
 
-def test_typo_corrections_wait_for_next_keystroke() -> None:
+def test_typo_corrections_use_user_input_for_typos() -> None:
     service = _StubWindowService()
     keyboard = _KeyboardStub()
     rng = _DeterministicRandom()
@@ -61,8 +61,8 @@ def test_typo_corrections_wait_for_next_keystroke() -> None:
         min_char_delay=0.0,
         max_char_delay=0.0,
         error_probability=0.5,
-        error_min_burst=1,
-        error_max_burst=1,
+        error_min_burst=2,
+        error_max_burst=2,
     ).clamped()
 
     injector = MatlabInjector(
@@ -75,15 +75,22 @@ def test_typo_corrections_wait_for_next_keystroke() -> None:
 
     window = MatlabWindowInfo(handle=1, title="MATLAB Editor")
 
-    injector.type_text(window, "a")
+    injector.type_text(window, "a", source_inputs=("x",))
 
-    assert keyboard.events == [("write", "s")]
+    assert keyboard.events == [("write", "x")]
 
-    injector.type_text(window, "b")
+    injector.type_text(window, "b", source_inputs=("y",))
+
+    assert keyboard.events == [("write", "x"), ("write", "y")]
+
+    injector.type_text(window, "c", source_inputs=("z",))
 
     assert keyboard.events == [
-        ("write", "s"),
+        ("write", "x"),
+        ("write", "y"),
+        ("send", "backspace"),
         ("send", "backspace"),
         ("write", "a"),
         ("write", "b"),
+        ("write", "c"),
     ]
