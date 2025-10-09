@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
 from PyQt6 import QtCore, QtWidgets
 
+from src.config.constants import MAX_PREVIEW_CHARS
 from src.models.matlab_window import MatlabWindowInfo
 from src.services.file_service import MatlabFileError, ensure_matlab_file, read_matlab_source
 from src.services.injector_service import MatlabInjectionError, MatlabInjector
@@ -39,9 +41,12 @@ class MainController(QtCore.QObject):
 
         self._selected_file: Optional[Path] = None
         self._matlab_window: Optional[MatlabWindowInfo] = None
+        self._script_content: str = ""
+        self._typed_index: int = 0
+        self._last_key_timestamp: Optional[float] = None
 
         self._connect_signals()
-        self._refresh_matlab_window_status()
+        self._refresh_matlab_windows()
 
     # ------------------------------------------------------------------
     # Signal wiring
@@ -49,7 +54,8 @@ class MainController(QtCore.QObject):
 
     def _connect_signals(self) -> None:
         self._window.select_file_requested.connect(self._handle_file_selection)
-        self._window.refresh_window_requested.connect(self._refresh_matlab_window_status)
+        self._window.refresh_window_requested.connect(self._refresh_matlab_windows)
+        self._window.active_window_requested.connect(self._select_active_window)
         self._window.listener_toggled.connect(self._toggle_listener)
         self._keyboard_monitor.key_pressed.connect(self._handle_global_key)
         self._keyboard_monitor.listening_changed.connect(self._window.set_listener_state)
@@ -82,23 +88,41 @@ class MainController(QtCore.QObject):
 
         self._selected_file = path
         self._window.set_selected_file(path)
+        self._load_script_content()
 
     # ------------------------------------------------------------------
     # MATLAB window detection
     # ------------------------------------------------------------------
 
     @QtCore.pyqtSlot()
-    def _refresh_matlab_window_status(self) -> None:
+    def _refresh_matlab_windows(self) -> None:
         try:
-            self._matlab_window = self._window_service.get_active_matlab_window()
+            windows = self._window_service.list_matlab_windows()
         except MatlabWindowDetectionError as exc:
             self._matlab_window = None
-            self._window.set_matlab_window(None)
+            self._window.set_window_candidates([])
             self._window.log_message(str(exc))
             return
 
-        title = self._matlab_window.title if self._matlab_window else None
-        self._window.set_matlab_window(title)
+        self._window.set_window_candidates(windows)
+        if self._matlab_window is not None:
+            self._window.set_selected_window(self._matlab_window)
+        elif windows:
+            self._matlab_window = windows[0]
+            self._window.set_selected_window(self._matlab_window)
+
+    @QtCore.pyqtSlot()
+    def _select_active_window(self) -> None:
+        try:
+            active = self._window_service.get_active_matlab_window()
+        except MatlabWindowDetectionError as exc:
+            self._window.log_message(str(exc))
+            return
+        if active is None:
+            self._window.log_message("No active MATLAB editor detected.")
+            return
+        self._matlab_window = active
+        self._window.set_selected_window(active)
 
     # ------------------------------------------------------------------
     # Keyboard listening
@@ -111,22 +135,30 @@ class MainController(QtCore.QObject):
                 self._show_error("MATLAB File Required", "Choose a MATLAB script before listening.")
                 self._window.set_listener_state(False)
                 return
-            try:
-                self._matlab_window = self._window_service.get_active_matlab_window()
-            except MatlabWindowDetectionError as exc:
-                self._show_error("Unsupported Platform", str(exc))
+            if not self._script_content:
+                self._show_error("Empty Script", "Selected MATLAB file is empty.")
                 self._window.set_listener_state(False)
                 return
-            if not self._matlab_window:
+            selected = self._window.selected_window()
+            if selected is None:
                 self._show_error(
-                    "MATLAB Editor Not Found",
-                    "Focus a MATLAB editor window before starting the listener.",
+                    "MATLAB Editor Required", "Select a MATLAB editor window to receive keystrokes."
                 )
                 self._window.set_listener_state(False)
                 return
+            self._matlab_window = selected
+            if self._typed_index >= len(self._script_content):
+                self._window.log_message(
+                    "All characters have already been injected. Reset by reloading the file."
+                )
+                self._window.set_listener_state(False)
+                return
+            self._last_key_timestamp = None
             try:
                 self._keyboard_monitor.start()
-                self._window.log_message("Listening for the next random key press...")
+                self._window.log_message(
+                    "Listener armed. Press any key to reveal the next character."
+                )
             except Exception as exc:  # pragma: no cover - keyboard lib failure
                 self._show_error("Keyboard Hook Error", str(exc))
                 self._window.set_listener_state(False)
@@ -135,6 +167,8 @@ class MainController(QtCore.QObject):
                 self._keyboard_monitor.stop()
             except Exception as exc:  # pragma: no cover
                 self._window.log_message(f"Failed to stop listener cleanly: {exc}")
+            finally:
+                self._last_key_timestamp = None
 
     @QtCore.pyqtSlot(str)
     def _handle_global_key(self, key_name: str) -> None:
@@ -142,14 +176,65 @@ class MainController(QtCore.QObject):
             self._window.log_message("Listener triggered without prerequisites.")
             return
 
+        now = time.perf_counter()
+        tempo_hint = None
+        if self._last_key_timestamp is not None:
+            tempo_hint = now - self._last_key_timestamp
+
+        chunk = self._next_chunk()
+        if not chunk:
+            self._window.log_message("All characters injected; ignoring extra key press.")
+            self._window.set_listener_state(False)
+            self._last_key_timestamp = now
+            return
+
         try:
-            content = read_matlab_source(self._selected_file)
-            self._injector.inject(self._matlab_window, content)
-            self._window.log_message(f"Injected MATLAB script after key '{key_name}'.")
+            self._injector.type_text(self._matlab_window, chunk, tempo_hint=tempo_hint)
+            self._window.log_message(
+                f"Key '{key_name}' revealed {len(chunk)} character{'s' if len(chunk) != 1 else ''}."
+            )
         except (MatlabFileError, MatlabInjectionError) as exc:
             self._show_error("Injection Failed", str(exc))
         finally:
-            self._window.set_listener_state(False)
+            self._update_progress()
+            if self._typed_index >= len(self._script_content):
+                self._window.log_message("Completed MATLAB script playback.")
+                self._window.set_listener_state(False)
+        self._last_key_timestamp = now
+
+    # ------------------------------------------------------------------
+    # Typing progression
+    # ------------------------------------------------------------------
+
+    def _load_script_content(self) -> None:
+        if not self._selected_file:
+            self._script_content = ""
+            self._typed_index = 0
+            self._update_progress()
+            return
+        try:
+            raw = read_matlab_source(self._selected_file)
+        except MatlabFileError as exc:
+            self._show_error("Read Error", str(exc))
+            self._script_content = ""
+            self._typed_index = 0
+            self._update_progress()
+            return
+        sanitized = raw.replace("\r\n", "\n").replace("\r", "\n")
+        self._script_content = sanitized
+        self._typed_index = 0
+        self._update_progress()
+
+    def _next_chunk(self) -> str:
+        if self._typed_index >= len(self._script_content):
+            return ""
+        char = self._script_content[self._typed_index]
+        self._typed_index += 1
+        return char
+
+    def _update_progress(self) -> None:
+        upcoming = self._script_content[self._typed_index : self._typed_index + MAX_PREVIEW_CHARS]
+        self._window.update_progress(self._typed_index, len(self._script_content), upcoming)
 
     # ------------------------------------------------------------------
     # Helpers

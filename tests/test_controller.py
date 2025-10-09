@@ -20,6 +20,9 @@ class StubWindowService:
     def get_active_matlab_window(self) -> MatlabWindowInfo:
         return self.window
 
+    def list_matlab_windows(self) -> list[MatlabWindowInfo]:
+        return [self.window]
+
     def focus_window(self, window: MatlabWindowInfo) -> None:
         assert window == self.window
         self.focus_calls += 1
@@ -27,12 +30,21 @@ class StubWindowService:
 
 class StubInjector:
     def __init__(self, focus_hook: Callable[[MatlabWindowInfo], None]) -> None:
-        self.calls: list[tuple[MatlabWindowInfo, str]] = []
+        self.calls: list[tuple[MatlabWindowInfo, str, float | None]] = []
         self._focus_hook = focus_hook
 
-    def inject(self, window: MatlabWindowInfo, content: str) -> None:
+    def type_text(
+        self,
+        window: MatlabWindowInfo,
+        content: str,
+        *,
+        tempo_hint: float | None = None,
+    ) -> None:
         self._focus_hook(window)
-        self.calls.append((window, content))
+        self.calls.append((window, content, tempo_hint))
+
+    def inject(self, window: MatlabWindowInfo, content: str) -> None:
+        self.type_text(window, content)
 
 
 class StubKeyboardMonitor(QtCore.QObject):
@@ -54,7 +66,6 @@ class StubKeyboardMonitor(QtCore.QObject):
 
     def fire(self, key_name: str) -> None:
         self.key_pressed.emit(key_name)
-        self.stop()
 
 
 def test_controller_injects_matlab_script(qtbot, tmp_path: Path, monkeypatch) -> None:
@@ -88,10 +99,12 @@ def test_controller_injects_matlab_script(qtbot, tmp_path: Path, monkeypatch) ->
     qtbot.mouseClick(listener_button, QtCore.Qt.MouseButton.LeftButton)
 
     monitor.fire("space")
+    monitor.fire("tab")
 
     assert injector.calls
-    injected_window, injected_content = injector.calls[0]
+    injected_window, first_chunk, tempo = injector.calls[0]
     assert injected_window == service.window
-    assert "hello world" in injected_content
-    assert service.focus_calls == 1
+    assert first_chunk == "d"
+    assert tempo is None or tempo >= 0
+    assert service.focus_calls == len(injector.calls)
     assert errors == []

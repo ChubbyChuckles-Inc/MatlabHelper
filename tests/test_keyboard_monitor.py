@@ -12,9 +12,10 @@ class FakeKeyboard:
         self.callback = None
         self.unhook_calls = 0
 
-    def hook(self, callback):  # type: ignore[override]
+    def hook(self, callback, *, suppress: bool = False):  # type: ignore[override]
         if self.callback is not None:
             raise AssertionError("hook called twice")
+        assert suppress is True
         self.callback = callback
         return callback
 
@@ -39,5 +40,10 @@ def test_keyboard_monitor_emits_signals(qtbot) -> None:
         fake_keyboard.callback(SimpleNamespace(name="space"))
     assert key_signal.args == ["space"]
 
+    assert monitor.is_listening()
+
+    with qtbot.waitSignal(monitor.listening_changed, timeout=500) as blocker:
+        monitor.stop()
+    assert blocker.args == [False]
     assert not monitor.is_listening()
     assert fake_keyboard.unhook_calls == 1

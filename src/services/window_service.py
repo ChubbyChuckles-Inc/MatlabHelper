@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 try:
     import win32con
@@ -60,6 +60,38 @@ class MatlabWindowService:
         if not any(keyword.lower() in title.lower() for keyword in MATLAB_WINDOW_KEYWORDS):
             return None
         return MatlabWindowInfo(handle=hwnd, title=title.strip())
+
+    def list_matlab_windows(self) -> List[MatlabWindowInfo]:
+        """Enumerate all open MATLAB editor windows."""
+
+        if not self.is_supported():
+            raise MatlabWindowDetectionError(
+                "MATLAB window detection is only supported on Windows."
+            )
+
+        assert self._gui is not None
+
+        windows: List[MatlabWindowInfo] = []
+        seen: set[int] = set()
+
+        def _callback(hwnd: int, _param: int) -> bool:
+            title = str(self._gui.GetWindowText(hwnd)).strip()
+            if not title:
+                return True
+            if hwnd in seen:
+                return True
+            if any(keyword.lower() in title.lower() for keyword in MATLAB_WINDOW_KEYWORDS):
+                windows.append(MatlabWindowInfo(handle=hwnd, title=title))
+                seen.add(hwnd)
+            return True
+
+        try:
+            self._gui.EnumWindows(_callback, 0)
+        except Exception as exc:  # pragma: no cover - rare win32 enumeration failure
+            raise MatlabWindowDetectionError("Failed to enumerate MATLAB windows.") from exc
+
+        windows.sort(key=lambda info: info.title.lower())
+        return windows
 
     def focus_window(self, window: MatlabWindowInfo) -> None:
         """Bring *window* to the foreground before injection."""

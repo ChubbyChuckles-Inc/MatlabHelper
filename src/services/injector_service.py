@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
-import contextlib
+import random
+import string
 import time
-from typing import Optional
-
-try:
-    import win32clipboard
-    import win32con
-except ImportError:  # pragma: no cover - exercised through dependency injection in tests
-    win32clipboard = None  # type: ignore[assignment]
-    win32con = None  # type: ignore[assignment]
+from typing import Optional, Tuple
 
 import keyboard
 
-from src.config.constants import INJECTION_PRE_FOCUS_DELAY_SECONDS
+from src.config.constants import (
+    INJECTION_PRE_FOCUS_DELAY_SECONDS,
+    MAX_CHAR_DELAY_SECONDS,
+    MIN_CHAR_DELAY_SECONDS,
+    TEMPO_MAX_FACTOR,
+    TEMPO_MIN_FACTOR,
+    TEMPO_REFERENCE_SECONDS,
+    TYPING_ERROR_MAX_BURST,
+    TYPING_ERROR_MIN_BURST,
+    TYPING_ERROR_PROBABILITY,
+)
 from src.models.matlab_window import MatlabWindowInfo
 from src.services.window_service import MatlabWindowDetectionError, MatlabWindowService
 
@@ -25,77 +29,106 @@ class MatlabInjectionError(RuntimeError):
 
 
 class MatlabInjector:
-    """Inject MATLAB script content by simulating keyboard input and clipboard pastes."""
+    """Inject MATLAB script content by simulating keystrokes."""
 
     def __init__(
         self,
         window_service: MatlabWindowService,
         *,
         keyboard_module=keyboard,
-        clipboard_module=win32clipboard,
-        con_module=win32con,
         sleep_fn=time.sleep,
+        rng: Optional[random.Random] = None,
     ) -> None:
         self._window_service = window_service
         self._keyboard = keyboard_module
-        self._clipboard = clipboard_module
-        self._con = con_module
         self._sleep = sleep_fn
+        self._rng = rng or random.Random()
+
+    def type_text(
+        self,
+        window: MatlabWindowInfo,
+        text: str,
+        *,
+        tempo_hint: Optional[float] = None,
+    ) -> None:
+        """Focus *window* and type *text* character by character.
+
+        Parameters
+        ----------
+        window:
+            Target MATLAB editor window.
+        text:
+            Characters to type in order.
+        tempo_hint:
+            Optional duration (in seconds) since the previous triggering key event. Used to
+            bias the typing cadence so that quick keyboard presses yield faster typing and
+            slower presses feel more deliberate.
+        """
+
+        if not text:
+            return
+
+        self._focus_window(window)
+        self._sleep(INJECTION_PRE_FOCUS_DELAY_SECONDS)
+
+        try:
+            delay_range = self._compute_delay_range(tempo_hint)
+            for char in text:
+                self._type_character_with_variation(char, delay_range)
+        except Exception as exc:  # pragma: no cover - keyboard library failure
+            raise MatlabInjectionError("Failed to type characters into MATLAB editor.") from exc
 
     def inject(self, window: MatlabWindowInfo, content: str) -> None:
-        """Focus *window* and stream *content* into it."""
+        """Compatibility wrapper around :meth:`type_text`."""
 
-        if not content:
-            raise MatlabInjectionError("MATLAB content is empty; nothing to inject.")
+        self.type_text(window, content)
+
+    # Internal helpers -------------------------------------------------
+
+    def _focus_window(self, window: MatlabWindowInfo) -> None:
         try:
             self._window_service.focus_window(window)
         except MatlabWindowDetectionError as exc:  # pragma: no cover - thin wrapper
             raise MatlabInjectionError(str(exc)) from exc
 
-        self._sleep(INJECTION_PRE_FOCUS_DELAY_SECONDS)
-        self._write_via_clipboard(content)
+    def _compute_delay_range(self, tempo_hint: Optional[float]) -> Tuple[float, float]:
+        base_min, base_max = MIN_CHAR_DELAY_SECONDS, MAX_CHAR_DELAY_SECONDS
+        if tempo_hint is None:
+            return base_min, base_max
 
-    # Internal helpers -------------------------------------------------
+        tempo = max(tempo_hint, 1e-3)
+        ratio = tempo / TEMPO_REFERENCE_SECONDS
+        factor = min(max(ratio, TEMPO_MIN_FACTOR), TEMPO_MAX_FACTOR)
+        return base_min * factor, base_max * factor
 
-    def _write_via_clipboard(self, content: str) -> None:
-        if self._clipboard is None or self._con is None:
-            raise MatlabInjectionError(
-                "pywin32 clipboard bindings are required for MATLAB content injection."
-            )
+    def _type_character_with_variation(self, char: str, delay_range: Tuple[float, float]) -> None:
+        if char not in {"\n", "\r", "\t"} and self._should_simulate_error():
+            mistakes = self._rng.randint(TYPING_ERROR_MIN_BURST, TYPING_ERROR_MAX_BURST)
+            for _ in range(mistakes):
+                typo = self._random_typo_character()
+                self._keyboard.write(typo, delay=0)
+                self._sleep(self._rng.uniform(*delay_range))
+            for _ in range(mistakes):
+                self._keyboard.send("backspace")
+                self._sleep(self._rng.uniform(*delay_range))
 
-        previous_text: Optional[str] = None
-        try:
-            self._clipboard.OpenClipboard()
-            with contextlib.suppress(Exception):
-                previous_text = str(self._clipboard.GetClipboardData(self._con.CF_UNICODETEXT))
-            self._clipboard.EmptyClipboard()
-            self._clipboard.SetClipboardText(content, self._con.CF_UNICODETEXT)
-        except Exception as exc:  # pragma: no cover - pywin32 specific failure
-            raise MatlabInjectionError("Failed to copy content to clipboard.") from exc
-        finally:
-            with contextlib.suppress(Exception):
-                self._clipboard.CloseClipboard()
+        self._type_character(char)
+        if char != "\r":
+            self._sleep(self._rng.uniform(*delay_range))
 
-        # Send paste sequence
-        self._keyboard.send("ctrl+a")
-        self._sleep(0.05)
-        self._keyboard.send("delete")
-        self._sleep(0.05)
-        self._keyboard.send("ctrl+v")
-        self._sleep(0.05)
+    def _should_simulate_error(self) -> bool:
+        return self._rng.random() < TYPING_ERROR_PROBABILITY
 
-        if previous_text:
-            self._restore_clipboard(previous_text)
+    def _random_typo_character(self) -> str:
+        population = string.ascii_letters + string.digits + string.punctuation
+        return self._rng.choice(population)
 
-    def _restore_clipboard(self, text: str) -> None:
-        if self._clipboard is None or self._con is None:
+    def _type_character(self, char: str) -> None:
+        if char == "\r":
             return
-        try:
-            self._clipboard.OpenClipboard()
-            self._clipboard.EmptyClipboard()
-            self._clipboard.SetClipboardText(text, self._con.CF_UNICODETEXT)
-        except Exception:
-            pass
-        finally:
-            with contextlib.suppress(Exception):
-                self._clipboard.CloseClipboard()
+        if char == "\n":
+            self._keyboard.send("enter")
+        elif char == "\t":
+            self._keyboard.send("tab")
+        else:
+            self._keyboard.write(char, delay=0)
