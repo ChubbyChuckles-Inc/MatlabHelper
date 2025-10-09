@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
+from typing import Any, Mapping
 
 from src.config import constants
 
@@ -55,3 +56,14 @@ class TypingSettings:
             focus_delay=focus_delay,
             tempo_reference_seconds=tempo_reference,
         )
+
+    def to_dict(self) -> dict[str, float | int]:
+        return {field.name: getattr(self, field.name) for field in fields(self)}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "TypingSettings":
+        defaults = cls.from_defaults()
+        kwargs = {
+            field.name: data.get(field.name, getattr(defaults, field.name)) for field in fields(cls)
+        }
+        return cls(**kwargs).clamped()

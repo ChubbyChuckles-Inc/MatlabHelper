@@ -3,9 +3,9 @@ name = "matlabhelper"
 version = "0.1.0"
 description = "A PyQt-based assistant for teaching MATLAB courses via automated editor content injection."
 authors = [{name = "ChubbyChuckles", email = "christian.rickert.1989@gmail.com"}]
-license = {text = "MIT"}
+license = "MIT"
 readme = "README.md"
-requires-python = "==3.13.7"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "PyQt6",
     "pywin32==307; platform_system == 'Windows'",
@@ -31,7 +31,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.black]
 line-length = 100
-target-version = ['py313']
+target-version = ['py312']
 
 [tool.flake8]
 max-line-length = 100
@@ -62,7 +62,7 @@ disable = [
 ]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.12"
 strict = true
 show_error_codes = true
 disable_error_code = [

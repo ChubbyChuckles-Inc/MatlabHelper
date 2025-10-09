@@ -15,7 +15,8 @@ def main() -> int:
 
     app = QtWidgets.QApplication(sys.argv)
     window = MatlabHelperMainWindow()
-    MainController(window)
+    controller = MainController(window)
+    controller.apply_initial_state()
     window.show()
     return app.exec()
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
@@ -173,6 +173,7 @@ class _TitleBar(QtWidgets.QWidget):
 class _WindowSelectorCard(QtWidgets.QFrame):
     refresh_requested = QtCore.pyqtSignal()
     use_active_requested = QtCore.pyqtSignal()
+    selection_changed = QtCore.pyqtSignal(object)
 
     def __init__(self, icons: _IconRegistry) -> None:
         super().__init__()
@@ -209,7 +210,7 @@ class _WindowSelectorCard(QtWidgets.QFrame):
         self._combo.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
         )
-        self._combo.currentIndexChanged.connect(self._update_status)
+        self._combo.currentIndexChanged.connect(self._on_index_changed)
         layout.addWidget(self._combo)
 
         self._status = QtWidgets.QLabel("No window selected")
@@ -232,6 +233,10 @@ class _WindowSelectorCard(QtWidgets.QFrame):
         else:
             self._combo.setCurrentIndex(0)
             self._update_status()
+
+    def _on_index_changed(self, _index: int) -> None:
+        self._update_status()
+        self.selection_changed.emit(self.selected_window())
 
     def selected_window(self) -> Optional[MatlabWindowInfo]:
         handle = self._combo.currentData()
@@ -274,6 +279,8 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
     active_window_requested = QtCore.pyqtSignal()
     listener_toggled = QtCore.pyqtSignal(bool)
     settings_changed = QtCore.pyqtSignal(TypingSettings)
+    target_window_changed = QtCore.pyqtSignal(object)
+    tab_changed = QtCore.pyqtSignal(int)
 
     def __init__(self) -> None:
         super().__init__()
@@ -337,6 +344,7 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
         self._window_selector = _WindowSelectorCard(self._icons)
         self._window_selector.refresh_requested.connect(self.refresh_window_requested.emit)
         self._window_selector.use_active_requested.connect(self.active_window_requested.emit)
+        self._window_selector.selection_changed.connect(self._emit_window_selection)
         left_column.addWidget(self._window_selector)
 
         left_column.addWidget(self._build_listener_card())
@@ -460,6 +468,7 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
         tabs.setDocumentMode(True)
         tabs.setElideMode(QtCore.Qt.TextElideMode.ElideRight)
         tabs.setMovable(False)
+        tabs.currentChanged.connect(self._on_tab_changed)
 
         log_container = QtWidgets.QWidget()
         log_container.setObjectName("LogTab")
@@ -566,6 +575,49 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
     def _register_settings_control(self, key: str, control: QtWidgets.QWidget) -> None:
         self._settings_controls[key] = control
 
+    def _emit_window_selection(self, window: Optional[MatlabWindowInfo]) -> None:
+        self.target_window_changed.emit(window)
+
+    def _on_tab_changed(self, index: int) -> None:
+        self.tab_changed.emit(index)
+
+    def tab_index(self) -> int:
+        if self._tab_widget is None:
+            return 0
+        return max(self._tab_widget.currentIndex(), 0)
+
+    def set_tab_index(self, index: int) -> None:
+        if self._tab_widget is None or self._tab_widget.count() == 0:
+            return
+        index = max(0, min(index, self._tab_widget.count() - 1))
+        if index == self._tab_widget.currentIndex():
+            return
+        self._tab_widget.blockSignals(True)
+        self._tab_widget.setCurrentIndex(index)
+        self._tab_widget.blockSignals(False)
+        self.tab_changed.emit(self._tab_widget.currentIndex())
+
+    def get_log_entries(self) -> List[str]:
+        if self._log is None:
+            return []
+        return self._log.toPlainText().splitlines()
+
+    def set_log_entries(self, entries: Iterable[str]) -> None:
+        if self._log is None:
+            return
+        text = "\n".join(str(entry) for entry in entries)
+        self._log.setPlainText(text)
+        cursor = self._log.textCursor()
+        cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
+        self._log.setTextCursor(cursor)
+        self._log.ensureCursorVisible()
+
+    def status_message(self) -> str:
+        return self.statusBar().currentMessage()
+
+    def set_status_message(self, message: str) -> None:
+        self.statusBar().showMessage(message)
+
     def _maximize_window(self) -> None:
         self.showMaximized()
         if self._title_bar:
@@ -583,7 +635,6 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
     def set_selected_file(self, file_path: Path) -> None:
         self._selected_file = file_path
         self._file_label.setText(str(file_path))
-        self.log_message(f"Selected MATLAB file: {file_path}")
 
     def clear_selected_file(self) -> None:
         self._selected_file = None

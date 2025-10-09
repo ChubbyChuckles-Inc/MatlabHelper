@@ -32,8 +32,15 @@ def test_main_exits_cleanly(monkeypatch) -> None:
         def show(self) -> None:  # type: ignore[override]
             created["window_shown"] = True
 
-    def fake_controller(window) -> None:
-        created["controller_window"] = window
+    class DummyController:
+        def __init__(self, window) -> None:  # type: ignore[override]
+            created["controller_window"] = window
+
+        def apply_initial_state(self) -> None:
+            created["controller_initialized"] = True
+
+    def fake_controller(window):
+        return DummyController(window)
 
     monkeypatch.setattr(main_module.QtWidgets, "QApplication", DummyApp)
     monkeypatch.setattr(main_module, "MatlabHelperMainWindow", lambda: DummyWindow())
@@ -45,3 +52,4 @@ def test_main_exits_cleanly(monkeypatch) -> None:
     assert created["exec_called"] is True
     assert created["window_shown"] is True
     assert "controller_window" in created
+    assert created.get("controller_initialized") is True

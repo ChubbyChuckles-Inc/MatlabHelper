@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import time
+import base64
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
 from PyQt6 import QtCore, QtWidgets
 
 from src.config.constants import MAX_PREVIEW_CHARS
+from src.models.app_state import AppState
 from src.models.matlab_window import MatlabWindowInfo
 from src.models.typing_settings import TypingSettings
 from src.services.file_service import MatlabFileError, ensure_matlab_file, read_matlab_source
@@ -16,9 +18,13 @@ from src.services.injector_service import MatlabInjectionError, MatlabInjector
 from src.services.keyboard_monitor import KeyboardMonitor
 from src.services.window_service import MatlabWindowDetectionError, MatlabWindowService
 from src.ui.main_window import MatlabHelperMainWindow
+from src.utils.app_state_store import AppStateStore
 
 
 FileDialogFn = Callable[[QtWidgets.QWidget], Tuple[str, str]]
+
+DEFAULT_STATUS_MESSAGE = "Select a MATLAB script and target window to begin."
+LISTENER_ARMED_MESSAGE = "Listener armed. Press any key to reveal the next character."
 
 
 class MainController(QtCore.QObject):
@@ -37,7 +43,10 @@ class MainController(QtCore.QObject):
         self._window = window
         self._window_service = window_service or MatlabWindowService()
         self._keyboard_monitor = keyboard_monitor or KeyboardMonitor()
-        self._typing_settings = TypingSettings.from_defaults().clamped()
+        self._state_store = AppStateStore()
+        self._app_state = self._state_store.load()
+        self._typing_settings = self._app_state.typing_settings.clamped()
+        self._app_state.typing_settings = self._typing_settings
         self._injector = injector or MatlabInjector(
             self._window_service, settings=self._typing_settings
         )
@@ -51,9 +60,16 @@ class MainController(QtCore.QObject):
         self._typed_index: int = 0
         self._last_key_timestamp: Optional[float] = None
 
+        self._state_save_timer = QtCore.QTimer(self)
+        self._state_save_timer.setSingleShot(True)
+        self._state_save_timer.setInterval(750)
+        self._state_save_timer.timeout.connect(self._save_state)
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self._save_state)
+
         self._connect_signals()
-        if hasattr(self._window, "set_settings"):
-            self._window.set_settings(self._typing_settings)
+        self._restore_ui_state()
         self._refresh_matlab_windows()
 
     # ------------------------------------------------------------------
@@ -65,11 +81,44 @@ class MainController(QtCore.QObject):
         self._window.refresh_window_requested.connect(self._refresh_matlab_windows)
         self._window.active_window_requested.connect(self._select_active_window)
         self._window.listener_toggled.connect(self._toggle_listener)
+        self._window.target_window_changed.connect(self._handle_target_window_changed)
+        self._window.tab_changed.connect(self._handle_tab_changed)
         settings_changed = getattr(self._window, "settings_changed", None)
         if callable(getattr(settings_changed, "connect", None)):
             settings_changed.connect(self._handle_settings_changed)
         self._keyboard_monitor.key_pressed.connect(self._handle_global_key)
-        self._keyboard_monitor.listening_changed.connect(self._window.set_listener_state)
+        self._keyboard_monitor.listening_changed.connect(self._on_listening_changed)
+
+    def _restore_ui_state(self) -> None:
+        if hasattr(self._window, "set_settings"):
+            self._window.set_settings(self._typing_settings)
+        self._window.set_tab_index(self._app_state.active_tab)
+        self._window.set_log_entries(self._app_state.log_messages)
+        status_message = self._app_state.status_message or DEFAULT_STATUS_MESSAGE
+        if status_message == LISTENER_ARMED_MESSAGE:
+            status_message = DEFAULT_STATUS_MESSAGE
+        self._window.set_status_message(status_message)
+        if self._app_state.selected_file:
+            path = Path(self._app_state.selected_file)
+            if path.exists():
+                self._selected_file = path
+                self._window.set_selected_file(path)
+                self._load_script_content()
+                if not self._file_matches_state(path):
+                    self._typed_index = 0
+                else:
+                    self._typed_index = max(
+                        0, min(self._app_state.typed_index, len(self._script_content))
+                    )
+                self._update_progress()
+            else:
+                self._selected_file = None
+                self._window.clear_selected_file()
+                self._app_state.selected_file = None
+                self._app_state.selected_file_mtime = None
+                self._app_state.typed_index = 0
+        self._app_state.listener_active = False
+        self._window.set_listener_state(False)
 
     # ------------------------------------------------------------------
     # File selection
@@ -95,11 +144,20 @@ class MainController(QtCore.QObject):
             self._show_error("Invalid MATLAB File", str(exc))
             self._window.clear_selected_file()
             self._selected_file = None
+            self._app_state.selected_file = None
+            self._app_state.selected_file_mtime = None
+            self._app_state.typed_index = 0
+            self._schedule_state_save()
             return
 
         self._selected_file = path
         self._window.set_selected_file(path)
+        self._app_state.selected_file = str(path)
+        self._app_state.selected_file_mtime = self._get_file_mtime(path)
+        self._app_state.typed_index = 0
+        self._log(f"Selected MATLAB file: {path}")
         self._load_script_content()
+        self._schedule_state_save()
 
     # ------------------------------------------------------------------
     # MATLAB window detection
@@ -112,28 +170,27 @@ class MainController(QtCore.QObject):
         except MatlabWindowDetectionError as exc:
             self._matlab_window = None
             self._window.set_window_candidates([])
-            self._window.log_message(str(exc))
+            self._update_target_window_state(None)
+            self._log(str(exc))
             return
 
         self._window.set_window_candidates(windows)
-        if self._matlab_window is not None:
-            self._window.set_selected_window(self._matlab_window)
-        elif windows:
-            self._matlab_window = windows[0]
-            self._window.set_selected_window(self._matlab_window)
+        self._apply_window_selection_from_state(tuple(windows))
 
     @QtCore.pyqtSlot()
     def _select_active_window(self) -> None:
         try:
             active = self._window_service.get_active_matlab_window()
         except MatlabWindowDetectionError as exc:
-            self._window.log_message(str(exc))
+            self._log(str(exc))
             return
         if active is None:
-            self._window.log_message("No active MATLAB editor detected.")
+            self._log("No active MATLAB editor detected.")
+            self._update_target_window_state(None)
             return
         self._matlab_window = active
         self._window.set_selected_window(active)
+        self._update_target_window_state(active)
 
     # ------------------------------------------------------------------
     # Keyboard listening
@@ -145,10 +202,12 @@ class MainController(QtCore.QObject):
             if not self._selected_file:
                 self._show_error("MATLAB File Required", "Choose a MATLAB script before listening.")
                 self._window.set_listener_state(False)
+                self._window.set_status_message(DEFAULT_STATUS_MESSAGE)
                 return
             if not self._script_content:
                 self._show_error("Empty Script", "Selected MATLAB file is empty.")
                 self._window.set_listener_state(False)
+                self._window.set_status_message(DEFAULT_STATUS_MESSAGE)
                 return
             selected = self._window.selected_window()
             if selected is None:
@@ -156,22 +215,20 @@ class MainController(QtCore.QObject):
                     "MATLAB Editor Required", "Select a MATLAB editor window to receive keystrokes."
                 )
                 self._window.set_listener_state(False)
+                self._window.set_status_message(DEFAULT_STATUS_MESSAGE)
                 return
             self._matlab_window = selected
             if self._typed_index >= len(self._script_content):
-                self._window.log_message(
-                    "All characters have already been injected. Reset by reloading the file."
-                )
+                self._log("All characters have already been injected. Reset by reloading the file.")
                 self._window.set_listener_state(False)
+                self._window.set_status_message(DEFAULT_STATUS_MESSAGE)
                 return
             self._last_key_timestamp = None
             if hasattr(self._injector, "reset_focus_cache"):
                 self._injector.reset_focus_cache()
             try:
                 self._keyboard_monitor.start()
-                self._window.log_message(
-                    "Listener armed. Press any key to reveal the next character."
-                )
+                self._log("Listener armed. Press any key to reveal the next character.")
             except Exception as exc:  # pragma: no cover - keyboard lib failure
                 self._show_error("Keyboard Hook Error", str(exc))
                 self._window.set_listener_state(False)
@@ -179,7 +236,7 @@ class MainController(QtCore.QObject):
             try:
                 self._keyboard_monitor.stop()
             except Exception as exc:  # pragma: no cover
-                self._window.log_message(f"Failed to stop listener cleanly: {exc}")
+                self._log(f"Failed to stop listener cleanly: {exc}")
             finally:
                 self._last_key_timestamp = None
                 if hasattr(self._injector, "reset_focus_cache"):
@@ -188,7 +245,7 @@ class MainController(QtCore.QObject):
     @QtCore.pyqtSlot(str)
     def _handle_global_key(self, key_name: str) -> None:
         if not self._selected_file or not self._matlab_window:
-            self._window.log_message("Listener triggered without prerequisites.")
+            self._log("Listener triggered without prerequisites.")
             return
 
         now = time.perf_counter()
@@ -198,14 +255,14 @@ class MainController(QtCore.QObject):
 
         chunk = self._next_chunk()
         if not chunk:
-            self._window.log_message("All characters injected; ignoring extra key press.")
+            self._log("All characters injected; ignoring extra key press.")
             self._window.set_listener_state(False)
             self._last_key_timestamp = now
             return
 
         try:
             self._injector.type_text(self._matlab_window, chunk, tempo_hint=tempo_hint)
-            self._window.log_message(
+            self._log(
                 f"Key '{key_name}' revealed {len(chunk)} character{'s' if len(chunk) != 1 else ''}."
             )
         except (MatlabFileError, MatlabInjectionError) as exc:
@@ -213,7 +270,7 @@ class MainController(QtCore.QObject):
         finally:
             self._update_progress()
             if self._typed_index >= len(self._script_content):
-                self._window.log_message("Completed MATLAB script playback.")
+                self._log("Completed MATLAB script playback.")
                 self._window.set_listener_state(False)
         self._last_key_timestamp = now
 
@@ -226,6 +283,9 @@ class MainController(QtCore.QObject):
             self._script_content = ""
             self._typed_index = 0
             self._update_progress()
+            self._app_state.typed_index = 0
+            self._app_state.selected_file_mtime = None
+            self._schedule_state_save()
             return
         try:
             raw = read_matlab_source(self._selected_file)
@@ -234,11 +294,16 @@ class MainController(QtCore.QObject):
             self._script_content = ""
             self._typed_index = 0
             self._update_progress()
+            self._app_state.typed_index = 0
+            self._schedule_state_save()
             return
         sanitized = raw.replace("\r\n", "\n").replace("\r", "\n")
         self._script_content = sanitized
         self._typed_index = 0
+        self._app_state.selected_file_mtime = self._get_file_mtime(self._selected_file)
         self._update_progress()
+        self._app_state.typed_index = 0
+        self._schedule_state_save()
 
     def _next_chunk(self) -> str:
         if self._typed_index >= len(self._script_content):
@@ -250,6 +315,8 @@ class MainController(QtCore.QObject):
     def _update_progress(self) -> None:
         upcoming = self._script_content[self._typed_index : self._typed_index + MAX_PREVIEW_CHARS]
         self._window.update_progress(self._typed_index, len(self._script_content), upcoming)
+        self._app_state.typed_index = self._typed_index
+        self._schedule_state_save()
 
     # ------------------------------------------------------------------
     # Helpers
@@ -260,8 +327,135 @@ class MainController(QtCore.QObject):
         self._typing_settings = settings.clamped()
         if hasattr(self._injector, "update_settings"):
             self._injector.update_settings(self._typing_settings)
-        self._window.log_message("Updated typing settings.")
+        self._app_state.typing_settings = self._typing_settings
+        self._log("Updated typing settings.")
 
     def _show_error(self, title: str, message: str) -> None:
         QtWidgets.QMessageBox.critical(self._window, title, message)
-        self._window.log_message(f"Error: {message}")
+        self._log(f"Error: {message}")
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    # ------------------------------------------------------------------
+
+    def apply_initial_state(self) -> None:
+        geometry = self._app_state.window_geometry
+        if geometry:
+            try:
+                data = QtCore.QByteArray.fromBase64(geometry.encode("ascii"))
+                self._window.restoreGeometry(data)
+            except Exception:  # pragma: no cover - malformed geometry payload
+                pass
+        if self._app_state.window_maximized:
+            self._window.setWindowState(
+                self._window.windowState() | QtCore.Qt.WindowState.WindowMaximized
+            )
+
+    def _handle_target_window_changed(self, window: Optional[MatlabWindowInfo]) -> None:
+        self._matlab_window = window
+        self._update_target_window_state(window)
+
+    def _handle_tab_changed(self, index: int) -> None:
+        self._app_state.active_tab = max(0, index)
+        self._schedule_state_save()
+
+    def _on_listening_changed(self, active: bool) -> None:
+        self._window.set_listener_state(active)
+        self._app_state.listener_active = active
+        if active:
+            self._window.set_status_message(LISTENER_ARMED_MESSAGE)
+        else:
+            self._window.set_status_message(DEFAULT_STATUS_MESSAGE)
+        self._schedule_state_save()
+
+    def _apply_window_selection_from_state(self, windows: Tuple[MatlabWindowInfo, ...]) -> None:
+        if not windows:
+            self._matlab_window = None
+            self._window.set_selected_window(None)
+            self._update_target_window_state(None)
+            return
+
+        target: Optional[MatlabWindowInfo] = None
+        if self._app_state.target_window_handle is not None:
+            target = next(
+                (
+                    window
+                    for window in windows
+                    if window.handle == self._app_state.target_window_handle
+                ),
+                None,
+            )
+        if target is None and self._app_state.target_window_title:
+            target = next(
+                (
+                    window
+                    for window in windows
+                    if window.title == self._app_state.target_window_title
+                ),
+                None,
+            )
+        if target is None and self._matlab_window is not None:
+            target = next(
+                (window for window in windows if window.handle == self._matlab_window.handle),
+                None,
+            )
+        if target is None:
+            target = windows[0]
+
+        self._matlab_window = target
+        self._window.set_selected_window(target)
+        self._update_target_window_state(target)
+
+    def _update_target_window_state(self, window: Optional[MatlabWindowInfo]) -> None:
+        if window is None:
+            self._app_state.target_window_handle = None
+            self._app_state.target_window_title = None
+        else:
+            self._app_state.target_window_handle = window.handle
+            self._app_state.target_window_title = window.title
+        self._schedule_state_save()
+
+    def _schedule_state_save(self) -> None:
+        if self._state_save_timer.isActive():
+            self._state_save_timer.stop()
+        self._state_save_timer.start()
+
+    @QtCore.pyqtSlot()
+    def _save_state(self) -> None:
+        if self._state_save_timer.isActive():
+            self._state_save_timer.stop()
+        self._app_state.typing_settings = self._typing_settings
+        self._app_state.listener_active = self._keyboard_monitor.is_listening()
+        self._app_state.active_tab = self._window.tab_index()
+        self._app_state.log_messages = self._window.get_log_entries()
+        self._app_state.status_message = self._window.status_message()
+        geometry = self._window.saveGeometry()
+        self._app_state.window_geometry = bytes(geometry.toBase64()).decode("ascii")
+        self._app_state.window_maximized = self._window.isMaximized()
+        if self._selected_file is None:
+            self._app_state.selected_file = None
+            self._app_state.selected_file_mtime = None
+        else:
+            self._app_state.selected_file = str(self._selected_file)
+            self._app_state.selected_file_mtime = self._get_file_mtime(self._selected_file)
+        self._state_store.save(self._app_state)
+
+    def _file_matches_state(self, path: Path) -> bool:
+        if self._app_state.selected_file_mtime is None:
+            return False
+        mtime = self._get_file_mtime(path)
+        if mtime is None:
+            return False
+        return abs(mtime - self._app_state.selected_file_mtime) < 1e-6
+
+    @staticmethod
+    def _get_file_mtime(path: Path) -> Optional[float]:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return None
+
+    def _log(self, message: str) -> None:
+        self._window.log_message(message)
+        self._app_state.update_logs(message)
+        self._schedule_state_save()

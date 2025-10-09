@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
+
+
+def _app_data_dir() -> Path:
+    base = os.environ.get("APPDATA")
+    if base:
+        return Path(base) / "MatlabHelper"
+    return Path.home() / ".matlabhelper"
 
 
 APP_NAME: str = "MatlabHelper"
@@ -25,3 +33,4 @@ TYPING_ERROR_MAX_BURST: int = 3
 TEMPO_REFERENCE_SECONDS: float = 0.35
 TEMPO_MIN_FACTOR: float = 0.05
 TEMPO_MAX_FACTOR: float = 1.35
+APP_STATE_PATH: Path = _app_data_dir() / "app_state.json"
