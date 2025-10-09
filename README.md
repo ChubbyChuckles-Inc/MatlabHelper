@@ -1,190 +1,122 @@
-# Project Template
+# MatlabHelper
 
-[![CI](https://github.com/ChubbyChuckles/project-template/actions/workflows/ci.yml/badge.svg)](https://github.com/ChubbyChuckles/project-template/actions/workflows/ci.yml)
-[![Docs](https://readthedocs.org/projects/project-template/badge/?version=latest)](https://project-template.readthedocs.io)
+MatlabHelper is a Windows-first desktop application that speeds up MATLAB demonstrations. Select a MATLAB `.m` script, focus the MATLAB editor, and any random keyboard tap will stream the file's contents directly into the active editor window. The app provides a modern PyQt6 experience, graceful error handling, and automated packaging as an MSI installer.
 
-This is a Python project template with automated setup for creating new projects, including a virtual environment, dependency installation, Sphinx documentation, and Git workflow with pre-commit checks.
+## Feature Highlights
 
-## Setup Instructions
+- 🌌 **Elegant PyQt6 interface** with dark-friendly contrast, responsive layouts, and live status indicators.
+- 🪟 **MATLAB editor detection** that keeps track of the active MATLAB window.
+- ⌨️ **Random keystroke trigger**: once a key press is detected, the selected MATLAB file is injected into the editor.
+- 🛡️ **Robust validation & messaging** for missing files, invalid extensions, or unavailable MATLAB windows.
+- 🧪 **Comprehensive testing suite** (unit + integration) powered by `pytest` and `pytest-qt`.
+- 📦 **CI/CD pipeline** that exercises tests and emits a Windows `.msi` via `cx_Freeze` on every commit.
 
-This template automates the setup of a new Python project. Follow these steps to initialize a new project after cloning or using this template.
+## Requirements
 
-### Prerequisites (Outside VS Code)
+- Windows 10/11 with MATLAB installed (editor window required for injection).
+- Python **3.13.7** (the project and automation scripts rely on this exact version).
+- PowerShell execution policy that allows running local scripts (`RemoteSigned` or less restrictive).
 
-Before starting, ensure the following are set up on your Windows 10 system:
+## Quick Start
 
-1. **Install Git**:
+1. **Install Python 3.13.7**
+   Download the official installer from [python.org](https://www.python.org/downloads/windows/) and ensure "Add to PATH" is enabled. Confirm the version:
 
-   - Download and install Git for Windows from [https://git-scm.com/](https://git-scm.com/).
-   - Verify installation by running in Command Prompt or PowerShell:
-     ```powershell
-     git --version
-     ```
-   - Ensure Git is added to your system PATH (selected during installation).
+   ```powershell
+   python --version
+   ```
 
-2. **Install Python**:
+2. **Clone the repository**
 
-   - Ensure Python 3.12.3 or later is installed. Download from [https://www.python.org/](https://www.python.org/).
-   - Verify installation:
-     ```powershell
-     python --version
-     ```
-   - Ensure `pip` is available:
-     ```powershell
-     python -m pip --version
-     ```
+   ```powershell
+   git clone https://github.com/ChubbyChuckles-Inc/MatlabHelper.git
+   cd MatlabHelper
+   ```
 
-3. **Set PowerShell Execution Policy**:
+3. **Create and prime the virtual environment**
 
-   - To run PowerShell scripts like `scripts/commit-push.ps1`, set the execution policy to allow scripts:
-     ```powershell
-     Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-     ```
-   - Run this in an elevated PowerShell prompt (right-click PowerShell and select "Run as administrator").
-   - If prompted, type `Y` to confirm.
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
 
-4. **Install Visual Studio Code (Optional but Recommended)**:
-   - Download and install VS Code from [https://code.visualstudio.com/](https://code.visualstudio.com/).
-   - Install the Python extension for VS Code (by Microsoft) for better Python support:
-     - Open VS Code, go to the Extensions view (`Ctrl+Shift+X`), search for "Python," and install the Microsoft Python extension.
+4. **Auto-activate the virtual environment (PowerShell)**
+   Add the snippet below to your PowerShell profile. Replace `F:\Coding\MatlabHelper` with your local clone path.
 
-### Setup Steps
+   ```powershell
+   $profilePath = "$HOME\Documents\PowerShell\Microsoft.PowerShell_profile.ps1"
+   if (-not (Test-Path $profilePath)) {
+      New-Item -ItemType File -Path $profilePath -Force | Out-Null
+   }
 
-1. **Clone the Repository or Create a New Project**:
+   $projectRoot = 'F:\Coding\MatlabHelper' # TODO: update to your clone path
+   $activateScript = Join-Path $projectRoot '.venv\Scripts\Activate.ps1'
+   $profileBlock = @"
+   if (Test-Path '$activateScript') {
+   Push-Location '$projectRoot'
+   . '$activateScript'
+   Pop-Location
+   }
+   "@
 
-   - Clone this repository:
-     ```powershell
-     git clone https://github.com/ChubbyChuckles/project-template.git <new-project-name>
-     cd <new-project-name>
-     ```
-   - Alternatively, use the "Use this template" button on GitHub to create a new repository, then clone it:
-     ```powershell
-     git clone https://github.com/<your-username>/<your-new-repo>.git
-     cd <your-new-repo>
-     ```
+   if (-not (Get-Content $profilePath -ErrorAction SilentlyContinue | Select-String -SimpleMatch $activateScript)) {
+      Add-Content -Path $profilePath -Value $profileBlock
+   }
+   ```
 
-2. **Run the Bootstrap Script**:
+   Open a new PowerShell window in the repository to verify that `.venv` activates automatically.
 
-   - Run the `bootstrap.py` script to automate setup:
-     ```powershell
-     python bootstrap.py
-     ```
-   - Follow the prompts:
-     - **Enter the new project name** (e.g., `MyNewProject`).
-     - **Enter the new GitHub repository URL** (e.g., `https://github.com/ChubbyChuckles/my-new-project.git`).
-   - The script will:
-     - Create a virtual environment (`.venv`).
-     - Install dependencies from `requirements.txt` (e.g., `numpy`, `pandas`, `matplotlib`, `sphinx`, `pre-commit`).
-     - Create a `.env` file in the root directory with the project name and placeholder environment variables.
-     - Update `README.md`, `setup.py`, and `docs/source/conf.py` with the new project name and author.
-     - Initialize a Git repository (if needed) and set the new remote URL.
-     - Create and switch to a `develop` branch.
-     - Run `scripts/commit-push.ps1` to stage, commit, and push changes to the `develop` branch.
+5. **Run the application**
+   ```powershell
+   python -m src.main
+   ```
 
-3. **Inside VS Code**:
-   - **Open the Project**:
-     - Launch VS Code and open the project folder:
-       ```powershell
-       code .
-       ```
-     - Alternatively, open VS Code, go to `File > Open Folder`, and select the project directory (e.g., `C:\Users\Chuck\Desktop\CR_AI_Engineering\Projekte\Github_Repo_Template\<new-project-name>`).
-   - **Select Python Interpreter**:
-     - Press `Ctrl+Shift+P` to open the Command Palette.
-     - Type `Python: Select Interpreter` and select the virtual environment (`.venv\Scripts\python.exe`).
-   - **Run `bootstrap.py` in VS Code** (if not run earlier):
-     - Open `bootstrap.py` in VS Code.
-     - Right-click the file and select `Run Python File in Terminal`, or use the integrated terminal:
-       ```powershell
-       python bootstrap.py
-       ```
-   - **Edit Configuration Files**:
-     - Update `docs/source/conf.py` for additional Sphinx settings (e.g., add custom modules for `autodoc`).
-     - Modify `README.md` or `setup.py` to add project-specific details.
-     - Use VS Code’s built-in Git integration (Source Control tab) to stage, commit, and push changes:
-       - Click the Source Control icon in the sidebar.
-       - Stage changes by clicking the `+` next to modified files.
-       - Enter a commit message and click the checkmark to commit.
-       - Click the `...` menu and select `Push` to push to the remote repository.
-   - **Generate Sphinx Documentation**:
-     - Open the integrated terminal in VS Code (`Ctrl+``).
-     - Run:
-       ```powershell
-       cd docs
-       .\make.bat html
-       ```
-     - Open `docs/build/html/index.html` in a browser to verify the documentation.
+## Usage
 
-### Troubleshooting
+1. Launch MatlabHelper and click **Select MATLAB Script** to choose a `.m` file.
+2. Ensure a MATLAB editor window is open and active. Click **Refresh** if needed to detect it.
+3. Toggle **Keystroke Listener** on. The app waits silently.
+4. Tap any key on the keyboard. MatlabHelper pastes the selected script into the active editor and stops listening.
+5. Toggle the listener back on whenever you need to re-run the demo.
 
-- **Pre-Commit Hook Failures**:
+## Testing
 
-  - If `scripts/commit-push.ps1` fails due to pre-commit hooks (e.g., `black`, `flake8`, `sphinx-build`), check the error output in the terminal.
-  - Ensure all dependencies are installed:
-    ```powershell
-    .\.venv\Scripts\Activate.ps1
-    pip install -r requirements.txt
-    ```
-  - Verify Sphinx files (`docs/Makefile`, `docs/make.bat`, `docs/source/conf.py`, `docs/source/index.rst`) exist.
-  - If issues persist, open `.pre-commit-config.yaml` in VS Code and check the `sphinx-build` hook configuration:
-    ```yaml
-    - repo: local
-      hooks:
-        - id: sphinx-build
-          name: Build Sphinx documentation
-          entry: make html
-          language: system
-          files: ^docs/
-    ```
+The suite covers validation logic, window detection (via mocks), keyboard monitoring, and integration flows.
 
-- **Git Push Errors**:
+```powershell
+pytest
+```
 
-  - If `git push` fails, verify the GitHub URL and ensure you have push access.
-  - Use a personal access token if authentication fails:
-    ```powershell
-    git remote set-url origin https://<username>:<token>@github.com/<username>/<repo>.git
-    ```
-    Generate a token in GitHub: `Settings > Developer settings > Personal access tokens > Tokens (classic)`.
+For UI-centric tests that rely on Qt, `pytest-qt` handles the Qt event loop automatically.
 
-- **Dependency Issues**:
+## Packaging
 
-  - If `pip install -r requirements.txt` fails, check for conflicting versions in `requirements.txt`.
-  - Run in the VS Code terminal:
-    ```powershell
-    .\.venv\Scripts\Activate.ps1
-    pip install -r requirements.txt
-    ```
+The CI pipeline uses `cx_Freeze` to build a Windows `.msi`. You can run the same build locally:
 
-- **Virtual Environment Issues**:
+```powershell
+python setup_cx_freeze.py build
+python setup_cx_freeze.py bdist_msi
+```
 
-  - Ensure `.venv` is not ignored in `.gitignore`.
-  - If the virtual environment fails to activate, recreate it:
-    ```powershell
-    python -m venv .venv
-    .\.venv\Scripts\Activate.ps1
-    ```
+Artifacts publish to `build/` locally and to the GitHub Actions run as an artifact.
 
-- **.env File Issues**:
-  - The `bootstrap.py` script creates a `.env` file with the project name and example variables.
-  - Edit `.env` in VS Code to add project-specific environment variables (e.g., API keys, database URLs).
-  - Do not commit sensitive data to `.env`. For production use, add `.env` to `.gitignore` after setup and use a `.env.example` file for templates.
+## Project Layout
 
-### Documentation
+- `src/` — Application code (Qt UI, services, controllers).
+- `tests/` — Unit and integration tests executed via `pytest`.
+- `docs/` — Sphinx documentation (optional) tailored for MatlabHelper.
+- `scripts/` — Helper scripts (environment bootstrap, CI utilities).
+- `.github/workflows/ci-cd.yml` — Continuous integration pipeline definition.
 
-- Documentation is built with Sphinx. To generate HTML documentation:
-  ```powershell
-  cd docs
-  .\make.bat html
-  ```
+## Troubleshooting
 
-## Repository Structure
+- **No MATLAB window detected**: ensure MATLAB is running and the editor window has focus. The status bar should display the detected title.
+- **Permission errors**: run PowerShell as administrator when adjusting execution policies or interacting with windows across integrity levels.
+- **Keyboard hook not firing**: some antivirus tools block global hooks; whitelist Python or run as admin.
+- **Installer build failures**: confirm you are on Windows with Visual C++ Build Tools installed (required by `cx_Freeze`).
 
-- `bootstrap.py`: Automates project setup.
-- `requirements.txt`: Lists dependencies (e.g., `numpy`, `pandas`, `sphinx`, `pre-commit`).
-- `scripts/commit-push.ps1`: PowerShell script for staging, committing, and pushing changes.
-- `docs/`: Contains Sphinx files (`Makefile`, `make.bat`, `source/conf.py`, `source/index.rst`).
-- `.pre-commit-config.yaml`: Configures pre-commit hooks.
-- `setup.py`: Python package configuration.
-- `.env`: Template file for environment variables.
-- `README.md`: This file.
+## License
 
-For further customization, edit `setup.py`, `docs/source/conf.py`, `.env`, or add Python modules to the repository.
+MIT License © ChubbyChuckles-Inc. See `LICENSE` for details.

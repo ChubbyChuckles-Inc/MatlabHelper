@@ -1,39 +1,25 @@
 import os
 import sys
+from datetime import datetime
 
-sys.path.insert(0, os.path.abspath("../.."))  # Adjust to point to your project root
+sys.path.insert(0, os.path.abspath("../.."))
 
 extensions = [
-    "sphinx.ext.autodoc",  # For documenting Python code
-    "sphinx.ext.napoleon",  # For Google/NumPy-style docstrings
-    "sphinx.ext.viewcode",  # For linking to source code
+    "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",
+    "sphinx.ext.viewcode",
 ]
 
+templates_path = ["_templates"]
+exclude_patterns: list[str] = []
+
 html_theme = "sphinx_rtd_theme"
-# Configuration file for the Sphinx documentation builder.
-#
-# For the full list of built-in configuration values, see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
+html_static_path = ["_static"]
 
-# -- Project information -----------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
-
-project = "project-template"
+project = "MatlabHelper"
 copyright = "2025, Christian Rickert"
 author = "Christian Rickert"
 release = "1.0.0"
-
-# -- General configuration ---------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
-
-extensions = []
-
-templates_path = ["_templates"]
-exclude_patterns = []
-
-
-# -- Options for HTML output -------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
-
-html_theme = "alabaster"
-html_static_path = ["_static"]
+current_year = datetime.now().year
+if str(current_year) not in copyright:
+    copyright = f"{current_year}, Christian Rickert"

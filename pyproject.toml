@@ -1,23 +1,29 @@
 [project]
-name = "project-template"
+name = "matlabhelper"
 version = "0.1.0"
-description = "A Python project template with automated setup and documentation"
+description = "A PyQt-based assistant for teaching MATLAB courses via automated editor content injection."
 authors = [{name = "ChubbyChuckles", email = "christian.rickert.1989@gmail.com"}]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = "==3.13.7"
 dependencies = [
-    "numpy",
-    "pandas",
-    "matplotlib",
-    "sphinx",
-    "sphinx-rtd-theme",
-    "sphinxcontrib-napoleon",
-    "pre-commit",
+    "PyQt6",
+    "pywin32==307; platform_system == 'Windows'",
+    "keyboard",
+    "pyperclip",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-qt",
+    "pytest-mock",
+    "pytest-timeout",
+    "cx-Freeze==8.4.1",
 ]
 
 [project.urls]
-Homepage = "https://github.com/ChubbyChuckles/project-template"
+Homepage = "https://github.com/ChubbyChuckles-Inc/MatlabHelper"
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -25,7 +31,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.black]
 line-length = 100
-target-version = ['py38']
+target-version = ['py313']
 
 [tool.flake8]
 max-line-length = 100
@@ -56,7 +62,7 @@ disable = [
 ]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.13"
 strict = true
 show_error_codes = true
 disable_error_code = [
@@ -69,3 +75,4 @@ exclude = [
 [tool.pytest.ini_options]
 minversion = "6.0"
 testpaths = ["tests"]
+addopts = "--maxfail=1 --disable-warnings --timeout=15 --timeout-method=thread"

@@ -1,11 +1,24 @@
-# src/main.py
-"""Main module for Project-Template."""
+"""Entry point for the MatlabHelper PyQt application."""
+
+from __future__ import annotations
+
+import sys
+
+from PyQt6 import QtWidgets
+
+from src.app.controller import MainController
+from src.ui.main_window import MatlabHelperMainWindow
 
 
-def main() -> None:
-    """Entry point for the project."""
-    print("Hello from project-template!")
+def main() -> int:
+    """Launch the PyQt6 application."""
+
+    app = QtWidgets.QApplication(sys.argv)
+    window = MatlabHelperMainWindow()
+    MainController(window)
+    window.show()
+    return app.exec()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
