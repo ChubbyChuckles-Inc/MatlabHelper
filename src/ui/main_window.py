@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import ctypes
-import sys
-from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional, Tuple
@@ -13,6 +10,7 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 
 from src.config.constants import APP_NAME, ICON_DIR, MAX_PREVIEW_CHARS
 from src.models.matlab_window import MatlabWindowInfo
+from src.models.typing_settings import TypingSettings
 
 
 class _IconRegistry:
@@ -275,6 +273,7 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
     refresh_window_requested = QtCore.pyqtSignal()
     active_window_requested = QtCore.pyqtSignal()
     listener_toggled = QtCore.pyqtSignal(bool)
+    settings_changed = QtCore.pyqtSignal(TypingSettings)
 
     def __init__(self) -> None:
         super().__init__()
@@ -288,9 +287,14 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
         self.setMinimumSize(980, 600)
         self._icons = _IconRegistry()
         self.setWindowIcon(self._icons.get("app"))
-        self._selected_file: Path | None = None
+        self._selected_file = None
         self._progress = _ProgressSnapshot(typed=0, total=1, preview="")
-        self._title_bar: Optional[_TitleBar] = None
+        self._title_bar = None
+        self._tab_widget = None
+        self._log = None
+        self._settings_controls = {}
+        self._settings_updating = False
+        self._current_settings = TypingSettings.from_defaults().clamped()
         self._build_ui()
         self._apply_styling()
 
@@ -341,10 +345,8 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
 
         content_layout.addLayout(left_column, stretch=3)
 
-        self._log = QtWidgets.QPlainTextEdit()
-        self._log.setObjectName("LogConsole")
-        self._log.setReadOnly(True)
-        content_layout.addWidget(self._log, stretch=4)
+        right_panel = self._build_tab_widget()
+        content_layout.addWidget(right_panel, stretch=4)
 
         outer_layout.addWidget(body)
 
@@ -451,6 +453,119 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
 
         return card
 
+    def _build_tab_widget(self) -> QtWidgets.QTabWidget:
+        tabs = QtWidgets.QTabWidget()
+        tabs.setObjectName("SettingsTabs")
+        tabs.setTabPosition(QtWidgets.QTabWidget.TabPosition.North)
+        tabs.setDocumentMode(True)
+        tabs.setElideMode(QtCore.Qt.TextElideMode.ElideRight)
+        tabs.setMovable(False)
+
+        log_container = QtWidgets.QWidget()
+        log_container.setObjectName("LogTab")
+        log_layout = QtWidgets.QVBoxLayout(log_container)
+        log_layout.setContentsMargins(16, 16, 16, 16)
+        log_layout.setSpacing(12)
+
+        self._log = QtWidgets.QPlainTextEdit()
+        self._log.setObjectName("LogConsole")
+        self._log.setReadOnly(True)
+        log_layout.addWidget(self._log)
+
+        tabs.addTab(log_container, "Activity Log")
+
+        settings_tab = self._build_settings_tab()
+        tabs.addTab(settings_tab, "Typing Settings")
+
+        self._tab_widget = tabs
+        self._sync_settings_to_controls(self._current_settings)
+
+        return tabs
+
+    def _build_settings_tab(self) -> QtWidgets.QWidget:
+        container = QtWidgets.QWidget()
+        container.setObjectName("SettingsTab")
+        layout = QtWidgets.QVBoxLayout(container)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(18)
+
+        description = QtWidgets.QLabel(
+            "Fine-tune how the script types into MATLAB, including pacing and typo realism."
+        )
+        description.setObjectName("SettingsHint")
+        description.setWordWrap(True)
+        layout.addWidget(description)
+
+        form = QtWidgets.QFormLayout()
+        form.setLabelAlignment(
+            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter
+        )
+        form.setFormAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
+        form.setHorizontalSpacing(18)
+        form.setVerticalSpacing(12)
+        layout.addLayout(form)
+
+        focus_delay = self._create_double_spinbox(0.0, 2.0, 0.01, decimals=2)
+        form.addRow("Focus delay (s)", focus_delay)
+        self._register_settings_control("focus_delay", focus_delay)
+
+        min_char_delay = self._create_double_spinbox(0.0, 0.5, 0.005, decimals=3)
+        form.addRow("Minimum char delay (s)", min_char_delay)
+        self._register_settings_control("min_char_delay", min_char_delay)
+
+        max_char_delay = self._create_double_spinbox(0.0, 0.8, 0.005, decimals=3)
+        form.addRow("Maximum char delay (s)", max_char_delay)
+        self._register_settings_control("max_char_delay", max_char_delay)
+
+        tempo_reference = self._create_double_spinbox(0.05, 2.0, 0.01, decimals=2)
+        form.addRow("Tempo reference (s)", tempo_reference)
+        self._register_settings_control("tempo_reference_seconds", tempo_reference)
+
+        tempo_min = self._create_double_spinbox(0.0, 1.0, 0.05, decimals=2)
+        form.addRow("Tempo min multiplier", tempo_min)
+        self._register_settings_control("tempo_min_factor", tempo_min)
+
+        tempo_max = self._create_double_spinbox(0.1, 3.0, 0.05, decimals=2)
+        form.addRow("Tempo max multiplier", tempo_max)
+        self._register_settings_control("tempo_max_factor", tempo_max)
+
+        error_probability = self._create_double_spinbox(0.0, 1.0, 0.01, decimals=2)
+        form.addRow("Typo chance", error_probability)
+        self._register_settings_control("error_probability", error_probability)
+
+        error_min = self._create_int_spinbox(0, 10, 1)
+        form.addRow("Min typo burst", error_min)
+        self._register_settings_control("error_min_burst", error_min)
+
+        error_max = self._create_int_spinbox(1, 12, 1)
+        form.addRow("Max typo burst", error_max)
+        self._register_settings_control("error_max_burst", error_max)
+
+        layout.addStretch()
+        return container
+
+    def _create_double_spinbox(
+        self, minimum: float, maximum: float, step: float, *, decimals: int = 2
+    ) -> QtWidgets.QDoubleSpinBox:
+        spin = QtWidgets.QDoubleSpinBox()
+        spin.setRange(minimum, maximum)
+        spin.setDecimals(decimals)
+        spin.setSingleStep(step)
+        spin.setKeyboardTracking(False)
+        spin.valueChanged.connect(self._handle_settings_value_changed)
+        return spin
+
+    def _create_int_spinbox(self, minimum: int, maximum: int, step: int = 1) -> QtWidgets.QSpinBox:
+        spin = QtWidgets.QSpinBox()
+        spin.setRange(minimum, maximum)
+        spin.setSingleStep(step)
+        spin.setKeyboardTracking(False)
+        spin.valueChanged.connect(self._handle_settings_value_changed)
+        return spin
+
+    def _register_settings_control(self, key: str, control: QtWidgets.QWidget) -> None:
+        self._settings_controls[key] = control
+
     def _maximize_window(self) -> None:
         self.showMaximized()
         if self._title_bar:
@@ -507,7 +622,95 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
         else:
             self._preview_label.setText("Ready for the next keystroke.")
 
+    # ------------------------------------------------------------------
+    # Settings management
+    # ------------------------------------------------------------------
+
+    def set_settings(self, settings: TypingSettings) -> None:
+        self._current_settings = settings.clamped()
+        self._sync_settings_to_controls(self._current_settings)
+
+    def _sync_settings_to_controls(self, settings: TypingSettings) -> None:
+        if not self._settings_controls:
+            return
+        self._settings_updating = True
+        try:
+            self._set_spinbox_value("focus_delay", settings.focus_delay)
+            self._set_spinbox_value("min_char_delay", settings.min_char_delay)
+            self._set_spinbox_value("max_char_delay", settings.max_char_delay)
+            self._set_spinbox_value("tempo_reference_seconds", settings.tempo_reference_seconds)
+            self._set_spinbox_value("tempo_min_factor", settings.tempo_min_factor)
+            self._set_spinbox_value("tempo_max_factor", settings.tempo_max_factor)
+            self._set_spinbox_value("error_probability", settings.error_probability)
+            self._set_spinbox_value("error_min_burst", settings.error_min_burst)
+            self._set_spinbox_value("error_max_burst", settings.error_max_burst)
+        finally:
+            self._settings_updating = False
+
+    def _set_spinbox_value(self, key: str, value: float | int) -> None:
+        control = self._settings_controls.get(key)
+        if control is None:
+            return
+        if isinstance(control, QtWidgets.QDoubleSpinBox):
+            control.setValue(float(value))
+        elif isinstance(control, QtWidgets.QSpinBox):
+            control.setValue(int(value))
+
+    def _get_control_value(self, key: str, fallback: float | int) -> float | int:
+        control = self._settings_controls.get(key)
+        if control is None:
+            return fallback
+        value_method = getattr(control, "value", None)
+        if callable(value_method):
+            return value_method()
+        return fallback
+
+    def _gather_settings_from_controls(self) -> TypingSettings:
+        return TypingSettings(
+            focus_delay=float(
+                self._get_control_value("focus_delay", self._current_settings.focus_delay)
+            ),
+            min_char_delay=float(
+                self._get_control_value("min_char_delay", self._current_settings.min_char_delay)
+            ),
+            max_char_delay=float(
+                self._get_control_value("max_char_delay", self._current_settings.max_char_delay)
+            ),
+            tempo_reference_seconds=float(
+                self._get_control_value(
+                    "tempo_reference_seconds", self._current_settings.tempo_reference_seconds
+                )
+            ),
+            tempo_min_factor=float(
+                self._get_control_value("tempo_min_factor", self._current_settings.tempo_min_factor)
+            ),
+            tempo_max_factor=float(
+                self._get_control_value("tempo_max_factor", self._current_settings.tempo_max_factor)
+            ),
+            error_probability=float(
+                self._get_control_value(
+                    "error_probability", self._current_settings.error_probability
+                )
+            ),
+            error_min_burst=int(
+                self._get_control_value("error_min_burst", self._current_settings.error_min_burst)
+            ),
+            error_max_burst=int(
+                self._get_control_value("error_max_burst", self._current_settings.error_max_burst)
+            ),
+        ).clamped()
+
+    def _handle_settings_value_changed(self, _value: object) -> None:
+        if self._settings_updating:
+            return
+        updated = self._gather_settings_from_controls()
+        self._current_settings = updated
+        self._sync_settings_to_controls(updated)
+        self.settings_changed.emit(updated)
+
     def log_message(self, message: str) -> None:
+        if self._log is None:
+            return
         self._log.appendPlainText(message)
         self._log.ensureCursorVisible()
 
@@ -650,6 +853,30 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
             QProgressBar::chunk {
                 border-radius: 12px;
                 background-color: #22D3EE;
+            }
+            QTabWidget#SettingsTabs::pane {
+                border-radius: 16px;
+                border: 1px solid rgba(46, 58, 89, 0.7);
+                background-color: rgba(10, 12, 18, 0.9);
+                padding: 8px;
+            }
+            QTabWidget#SettingsTabs QTabBar::tab {
+                background-color: rgba(15, 23, 42, 0.85);
+                color: #E6EDF3;
+                padding: 10px 18px;
+                border-top-left-radius: 12px;
+                border-top-right-radius: 12px;
+                margin-right: 6px;
+            }
+            QTabWidget#SettingsTabs QTabBar::tab:selected {
+                background-color: #1F2937;
+            }
+            QWidget#SettingsTab {
+                background-color: transparent;
+            }
+            QLabel#SettingsHint {
+                color: rgba(226, 232, 240, 0.78);
+                font-size: 13px;
             }
         """
         )

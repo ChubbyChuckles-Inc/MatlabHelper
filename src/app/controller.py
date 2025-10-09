@@ -10,6 +10,7 @@ from PyQt6 import QtCore, QtWidgets
 
 from src.config.constants import MAX_PREVIEW_CHARS
 from src.models.matlab_window import MatlabWindowInfo
+from src.models.typing_settings import TypingSettings
 from src.services.file_service import MatlabFileError, ensure_matlab_file, read_matlab_source
 from src.services.injector_service import MatlabInjectionError, MatlabInjector
 from src.services.keyboard_monitor import KeyboardMonitor
@@ -36,7 +37,12 @@ class MainController(QtCore.QObject):
         self._window = window
         self._window_service = window_service or MatlabWindowService()
         self._keyboard_monitor = keyboard_monitor or KeyboardMonitor()
-        self._injector = injector or MatlabInjector(self._window_service)
+        self._typing_settings = TypingSettings.from_defaults().clamped()
+        self._injector = injector or MatlabInjector(
+            self._window_service, settings=self._typing_settings
+        )
+        if hasattr(self._injector, "update_settings"):
+            self._injector.update_settings(self._typing_settings)
         self._file_dialog = file_dialog or self._default_file_dialog
 
         self._selected_file: Optional[Path] = None
@@ -46,6 +52,8 @@ class MainController(QtCore.QObject):
         self._last_key_timestamp: Optional[float] = None
 
         self._connect_signals()
+        if hasattr(self._window, "set_settings"):
+            self._window.set_settings(self._typing_settings)
         self._refresh_matlab_windows()
 
     # ------------------------------------------------------------------
@@ -57,6 +65,9 @@ class MainController(QtCore.QObject):
         self._window.refresh_window_requested.connect(self._refresh_matlab_windows)
         self._window.active_window_requested.connect(self._select_active_window)
         self._window.listener_toggled.connect(self._toggle_listener)
+        settings_changed = getattr(self._window, "settings_changed", None)
+        if callable(getattr(settings_changed, "connect", None)):
+            settings_changed.connect(self._handle_settings_changed)
         self._keyboard_monitor.key_pressed.connect(self._handle_global_key)
         self._keyboard_monitor.listening_changed.connect(self._window.set_listener_state)
 
@@ -154,6 +165,8 @@ class MainController(QtCore.QObject):
                 self._window.set_listener_state(False)
                 return
             self._last_key_timestamp = None
+            if hasattr(self._injector, "reset_focus_cache"):
+                self._injector.reset_focus_cache()
             try:
                 self._keyboard_monitor.start()
                 self._window.log_message(
@@ -169,6 +182,8 @@ class MainController(QtCore.QObject):
                 self._window.log_message(f"Failed to stop listener cleanly: {exc}")
             finally:
                 self._last_key_timestamp = None
+                if hasattr(self._injector, "reset_focus_cache"):
+                    self._injector.reset_focus_cache()
 
     @QtCore.pyqtSlot(str)
     def _handle_global_key(self, key_name: str) -> None:
@@ -239,6 +254,13 @@ class MainController(QtCore.QObject):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @QtCore.pyqtSlot(object)
+    def _handle_settings_changed(self, settings: TypingSettings) -> None:
+        self._typing_settings = settings.clamped()
+        if hasattr(self._injector, "update_settings"):
+            self._injector.update_settings(self._typing_settings)
+        self._window.log_message("Updated typing settings.")
 
     def _show_error(self, title: str, message: str) -> None:
         QtWidgets.QMessageBox.critical(self._window, title, message)
