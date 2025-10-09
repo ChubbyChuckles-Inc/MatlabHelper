@@ -1,0 +1,82 @@
+[x] Lecture 1 — MATLAB scripting essentials and reference frames
+- Goals: Get comfortable with MATLAB scripts/functions, vectors/matrices, and SE(3) transforms.
+- In the script editor, create and test small utility functions that print useful intermediate results:
+  - rotX(theta), rotY(theta), rotZ(theta) → 3×3 rotation matrices; transl(x,y,z) → 4×4 homogeneous translation.
+  - rpy2rotm(roll,pitch,yaw) and rotm2rpy(R) (ZYX order) – preview in Command Window with simple angles.
+  - tprint(T, name) – pretty-print a 4×4 SE(3) transform with name and position/orientation.
+- Demos (step-by-step):
+  1) Compose T = transl(0.3,0.1,0.2)*rotZ(pi/6)*rotY(pi/12); call tprint(T,'Base→EE').
+  2) Verify R'*R ≈ I and det(R)=+1, print norms/determinants to Command Window.
+- Deliverable: utilities.m file with the above functions, each executable independently to show outputs.
+
+[x] Lecture 2 — Coordinate transforms and Euler angles (ZYX) vs. axis-angle
+- Theory: Orientation parameterizations; singularities (gimbal lock) for Euler; pros/cons.
+- Implement conversions (each prints intermediate values when partially executed):
+  - eulZYX2rotm([yaw pitch roll]) and rotm2eulZYX(R).
+  - axang2rotm([ux uy uz angle]) and rotm2axang(R), include unit-vector normalization with warnings.
+- Demos:
+  1) Compose rotations two ways (Euler vs. axis-angle) and compare R; print max|R1−R2|.
+  2) Show gimbal lock behavior with pitch → ±90°; print notice when condition is detected.
+- Deliverable: orientation_utils.m with these converters and prints.
+
+[x] Lecture 3 — Denavit–Hartenberg (DH) notation and kinematic chains
+- Theory: Standard vs. modified DH; link frames; parameters a, α, d, θ.
+- Implement:
+  - dh(a, alpha, d, theta) → 4×4 A_i (standard DH); tprint at each step when verbose.
+  - chainDH(dh_table, q, verbose) → {T0, T1, ..., Tn} cumulative frames; verbose prints each Ai and Ti.
+- Demos:
+  1) 2R planar arm (a1,a2; alphas=0). Show each intermediate transform and final EE pose.
+  2) Verify zero angles reduce to simple reachable points on x-axis; print positions.
+- Deliverable: dh_utils.m and an example script chain_demo.m.
+
+[x] Lecture 4 — Forward kinematics (FK) for serial manipulators
+- Theory: FK maps q → T(q); end-effector pose and intermediate frames.
+- Implement:
+  - fkine_serial(dh_table, q) → [T, Ts]. Returns EE transform and cell array Ts of intermediate frames.
+  - ee_position(T) and ee_orientation_rpy(T) to extract pose parts; prints on call.
+- Demos:
+  1) Build a 3R arm via DH; sweep q1 in steps and print EE position trajectory.
+  2) Optional minimal visualization: plot3 of EE positions; print live step index in the loop.
+- Deliverable: fkine.m and fk_demo.m.
+
+[x] Lecture 5 — Analytic inverse kinematics (IK) for planar arms
+- Theory: IK solutions, multiple branches, reachability, elbow-up/down.
+- Implement:
+  - ikine_2R(x, y, l1, l2, branch) → q solutions; prints feasibility checks and chosen branch.
+  - validate_ik_2R(x,y,l1,l2) → runs FK on IK(q) to print residual error.
+- Demos:
+  1) Target points within/outside workspace; show errors/warnings in Command Window.
+  2) Compare elbow-up vs elbow-down solutions; print angles in degrees.
+- Deliverable: ik_planar.m and ik_planar_demo.m.
+
+[x] Lecture 6 — Differential kinematics and the Jacobian
+- Theory: Spatial velocity twists, v = J(q)·qdot; geometric Jacobian; relationship to FK.
+- Implement:
+  - jacobian_geometric(dh_table, q) → 6×n J, using z-axes and origins from Ts; print rank(J) and cond(J).
+  - twist_of(Tdot) utility (optional) or directly demonstrate numeric differentiation of FK.
+- Demos:
+  1) Numeric check: J(q)·qdot ≈ [v; ω] from FK(q+Δq) − FK(q); print norms of errors.
+  2) Explore effect of changing a single joint rate; print resulting EE linear/angular components.
+- Deliverable: jacobian.m and jacobian_demo.m.
+
+[x] Lecture 7 — Singularities and robust IK (iterative)
+- Theory: Singularities, manipulability w = sqrt(det(JJ^T)), rank loss, near-singular behavior.
+- Implement:
+  - manipulability(J) and is_singular(J,tol) → prints w and decision.
+  - dls_step(J, err, lambda) → Δq = J^T (JJ^T + λ^2 I)^{-1} err; print λ used and step norm.
+  - ik_step(dh_table, q, T_target, lambda, maxStep) → one iterative step; prints residuals each call.
+- Demos:
+  1) Move to a target near a singularity with/without damping; compare iterations and residuals.
+  2) Show manipulability measure along a small path; print minima.
+- Deliverable: ik_iterative.m and singularity_demo.m.
+
+[x] Lecture 8 — Path planning and final robot demo
+- Theory: Task-space waypoint planning; interpolation and time-scaling; joint limits; collision is out-of-scope.
+- Implement:
+  - interpolate_pose(T0, T1, N) (position via linear, orientation via ZYX slerp/lerp-with-reorthonormalization).
+  - follow_path(dh_table, q0, waypoints, lambda) → iterate IK per waypoint; prints per-step status and residual.
+  - Optional loader: load_robot_dh(name) to select a simple 3–6 DOF model (DH table) and joint limits.
+- Demos:
+  1) Load a 3R DH model; plan a pick→place path with 20–50 waypoints; show progress messages.
+  2) Final run: main_demo.m executes the full task, printing milestones (reached waypoint, singularity warning, done).
+- Deliverable: path_planning.m, interpolate_pose.m, follow_path.m, and main_demo.m.
