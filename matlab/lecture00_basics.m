@@ -1,13 +1,6 @@
 function lecture00_basics()
 % Vorlesung 0 — MATLAB‑Grundlagen für Robotik (Mathematik, Visualisierung, Kinematik)
 %
-% Zweck
-%   Diese Übersicht macht Sie mit den mathematischen Fähigkeiten und den
-%   Visualisierungsmöglichkeiten von MATLAB vertraut und schlägt dann die
-%   Brücke zu zentralen Begriffen der Roboterkinematik. Die Ausgabe ist so
-%   gestaltet, dass sich die Texte im Command Window und die erzeugten
-%   Abbildungen gut als PDF‑Übersicht exportieren lassen.
-%
 % Ausführung
 %   - Datei in MATLAB öffnen und „Run“ ausführen (oder abschnittsweise mit %%‑Zellen)
 %   - Arbeitsordner auf das Repo bzw. den Ordner „matlab“ setzen
@@ -30,7 +23,7 @@ function lecture00_basics()
     % d2r: Umrechnung von Grad nach Radiant
     %   Eingabe: deg (Skalar/Array) in Grad
     %   Ausgabe: Radiant gleicher Größe
-    %   Motivation: Viele Formeln in der Robotik arbeiten in Radiant.
+   
     function out = d2r(deg)
         out = deg * pi/180;
     end
@@ -38,7 +31,7 @@ function lecture00_basics()
     % r2d: Umrechnung von Radiant nach Grad
     %   Eingabe: rad (Skalar/Array) in Radiant
     %   Ausgabe: Grad gleicher Größe
-    %   Nützlich zum menschenlesbaren Ausgeben von Winkeln.
+   
     function out = r2d(rad)
         out = rad * 180/pi;
     end
@@ -147,9 +140,11 @@ function lecture00_basics()
     end
 
 %% 1) Einstieg: Aufräumen und Initialisierung
-clc; rng(0);
-fprintf('Vorlesung 0: MATLAB‑Grundlagen für Robotik\n');
-fprintf('Datum: %s\n', datestr(now));
+clc;  % Räumt das Command Window auf
+rng(0);  % Setzt den Zufallszahlengenerator für reproduzierbare Ergebnisse
+fprintf('Vorlesung 0: MATLAB‑Grundlagen für Robotik\n');  % Gibt den Titel im Command Window aus
+datum = datestr(now);  % Wandelt die aktuelle Systemzeit in eine formatierte Zeichenkette um
+fprintf('Datum: %s\n', datum);  % Zeigt das aktuelle Datum an
 
 %% 2) Mathematik-Grundlagen: Felder und Lineare Algebra
 fprintf('\n=== Mathematik-Grundlagen ===\n');
@@ -161,12 +156,13 @@ A = [1 2; 3 4];              % 2x2-Matrix
 B = [2 -1; 1 0.5];
 C = A*B;                     % Matrixprodukt
 D = A.*B;                    % Elementweise Multiplikation
-fprintf('A*B (Matrixprodukt) =\n'); disp(C);
+fprintf('A*B (Matrixprodukt) =\n'); disp(C);  % disp zeigt die Matrix im Command Window an
 fprintf('A.*B (elementweise) =\n'); disp(D);
 
 % Indizierung und Teilbereiche
-M = reshape(1:12, [3,4]);    % 3x4-Matrix mit den Werten 1..12
-fprintf('Indexierung: M(2,3) = %d, M(:,2) = [ %s ]\n', M(2,3), num2str(M(:,2).'));
+M = reshape(1:12, [3,4]);    % reshape formt den Zahlenbereich zu einer 3x4-Matrix um
+col_text = num2str(M(:,2).');  % num2str wandelt den Spaltenvektor in eine Zeichenkette um
+fprintf('Indexierung: M(2,3) = %d, M(:,2) = [ %s ]\n', M(2,3), col_text);
 
 % Implizite Erweiterung (Broadcasting)
 row = [1 2 3]; col = [10; 20; 30];
@@ -175,14 +171,15 @@ fprintf('Broadcasting (Zeile + Spalte) =\n'); disp(S);
 
 % Lineare Gleichungssysteme und Konditionierung
 A = [4 1 0; 1 3 -1; 0 -1 2]; b = [1; 2; 0.5];
-x = A\b; res = norm(A*x - b);
+x = A\b; res = norm(A*x - b);  % norm misst die Abweichung zwischen Ax und b
 fprintf('Löse Ax=b mit \\: ‖Ax-b‖ = %.2e\n', res);
-fprintf('cond_2(A) = %.2f (Konditionszahl)\n', cond(A));
+fprintf('cond_2(A) = %.2f (Konditionszahl)\n', cond(A));  % cond gibt die Konditionszahl der Matrix aus
 
 % SVD und Ausgleichsrechnung
-M = randn(5,3); y = randn(5,1);
-[U,S,V] = svd(M, 'econ'); %#ok<ASGLU>
-x_ls = M\y; sig = diag(S).';
+M = randn(5,3);  % randn erzeugt normalverteilte Zufallszahlen mit Mittelwert 0
+y = randn(5,1);
+[U,S,V] = svd(M, 'econ'); %#ok<ASGLU>  % svd berechnet die Singulärwertzerlegung der Matrix
+x_ls = M\y; sig = diag(S).';  % diag extrahiert die Diagonale der Singulärwertmatrix
 fprintf('SVD(M): Singulärwerte = [%.3f %.3f %.3f]\n', sig);
 fprintf('Least‑Squares‑Lösung: ‖x‖ = %.3f\n', norm(x_ls));
 
@@ -190,28 +187,44 @@ fprintf('Least‑Squares‑Lösung: ‖x‖ = %.3f\n', norm(x_ls));
 fprintf('\n=== Visualisierung — Grundlagen ===\n');
 
 % 2D-Darstellung
-t = linspace(0, 2*pi, 200);
-y1 = sin(t); y2 = cos(t);
-figure('Name','2D‑Plots');
-subplot(1,2,1);
-plot(t, y1, 'b-', 'LineWidth', 1.5); hold on; plot(t, y2, 'r--', 'LineWidth', 1.5);
-grid on; xlabel('t (rad)'); ylabel('Amplitude'); legend('sin(t)', 'cos(t)'); title('Sinus und Cosinus');
+t = linspace(0, 2*pi, 200);  % linspace erzeugt 200 äquidistante Stützstellen zwischen 0 und 2π
+y1 = sin(t);  % sin berechnet die Sinuswerte für die Zeitbasis
+y2 = cos(t);  % cos liefert die Cosinuswerte zur Vergleichskurve
+figure('Name','2D‑Plots');  % figure öffnet ein neues Grafikfenster mit der angegebenen Beschriftung
+subplot(1,2,1);  % subplot(1,2,1) teilt das Fenster in 1x2 Achsen und aktiviert die linke Achse
+plot(t, y1, 'b-', 'LineWidth', 1.5);  % plot zeichnet den Funktionsverlauf als Linie
+hold on;  % hold on behält die aktuelle Achse für weitere Plots aktiv
+plot(t, y2, 'r--', 'LineWidth', 1.5);
+grid on;  % grid on blendet ein Koordinatengitter ein
+xlabel('t (rad)');  % xlabel setzt die Beschriftung der x-Achse
+ylabel('Amplitude');  % ylabel setzt die Beschriftung der y-Achse
+legend('sin(t)', 'cos(t)');  % legend erzeugt eine Legende für die dargestellten Kurven
+title('Sinus und Cosinus');  % title vergibt einen Achsentitel
 
 % Streudiagramm mit Beschriftung
-xdata = linspace(-1,1,20); ydata = xdata.^2 + 0.05*randn(size(xdata));
+xdata = linspace(-1,1,20);
+noise = 0.05*randn(size(xdata));  % size liefert die Dimensionen von xdata für das Rauschsampling
+ydata = xdata.^2 + noise;
 subplot(1,2,2);
-scatter(xdata, ydata, 40, 'filled'); grid on; xlabel('x'); ylabel('y'); title('Punktwolke');
+scatter(xdata, ydata, 40, 'filled');  % scatter stellt diskrete Punkte mit Markierungen dar
+grid on; xlabel('x'); ylabel('y'); title('Punktwolke');
 
 % 3D-Darstellung
 figure('Name','3D‑Plots');
 subplot(1,2,1);
 t = linspace(0, 4*pi, 200); r = 0.2; z = linspace(0, 1, 200);
 x = r*cos(t); y = r*sin(t);
-plot3(x, y, z, 'm-', 'LineWidth', 2); grid on; axis equal; xlabel('X'); ylabel('Y'); zlabel('Z'); title('3D‑Helix');
+plot3(x, y, z, 'm-', 'LineWidth', 2);  % plot3 zeichnet eine räumliche Kurve
+grid on; axis equal;  % axis equal erzwingt gleiche Skalierung in allen Achsen
+xlabel('X'); ylabel('Y'); zlabel('Z'); title('3D‑Helix');
 
 subplot(1,2,2);
-[X,Y] = meshgrid(linspace(-1,1,50)); Z = exp(-3*(X.^2 + Y.^2));
-surf(X,Y,Z); shading interp; colormap turbo; axis tight;
+[X,Y] = meshgrid(linspace(-1,1,50));  % meshgrid erzeugt ein Gitter aus x/y-Koordinaten
+Z = exp(-3*(X.^2 + Y.^2));  % exp wertet den Exponentialausdruck für das Höhenprofil aus
+surf(X,Y,Z);  % surf stellt eine farbige Oberfläche dar
+shading interp;  % shading interp glättet die Farbverläufe zwischen den Facetten
+colormap turbo;  % colormap legt die Farbpalette für die Grafik fest
+axis tight;  % axis tight schneidet den Plot auf den Datenbereich zu
 xlabel('X'); ylabel('Y'); zlabel('Z'); title('Gauß‑Hügel (Fläche)');
 
 %% 4) Rotationen und homogene Transformationen
@@ -228,8 +241,9 @@ T_ab = Ta * Tb; tprint4(T_ab, 'Komposition T = Ta * Tb');
 
 %% 5) Koordinatenrahmen in 3D visualisieren
 fprintf('\n=== Koordinatenrahmen visualisieren ===\n');
-fig = figure('Name','Rahmen'); ax = axes(fig);
-hold(ax, 'on'); grid(ax, 'on'); axis(ax, 'equal'); view(ax, 45, 25);
+fig = figure('Name','Rahmen');
+ax = axes(fig);  % axes erzeugt ein neues Achsenobjekt im angegebenen Figure
+hold(ax, 'on'); grid(ax, 'on'); axis(ax, 'equal'); view(ax, 45, 25);  % view legt die Blickrichtung auf die 3D-Achse fest
 xlabel(ax, 'X'); ylabel(ax, 'Y'); zlabel(ax, 'Z'); title(ax, 'Basis‑ und rotiertes Koordinatensystem');
 draw_frame3(ax, eye(4), 0.1, 2);          % Basisrahmen
 draw_frame3(ax, T, 0.1, 2);               % transformierter Rahmen
@@ -244,8 +258,10 @@ p2 = p1 + [l2*cos(q(1)+q(2)); l2*sin(q(1)+q(2))];
 fprintf('Endeffektor (x,y) = [%.3f, %.3f] m\n', p2(1), p2(2));
 
 fig2 = figure('Name','Planar 2R'); ax2 = axes(fig2);
-plot_planar_chain(ax2, [p0 p1 p2]); title(ax2, '2R‑Planararm');
-text(ax2, p2(1), p2(2), sprintf('  EE [%.2f, %.2f] m', p2(1), p2(2)));
+plot_planar_chain(ax2, [p0 p1 p2]);  % plot_planar_chain zeichnet die Gelenkkette als Linienzug
+title(ax2, '2R‑Planararm');
+label_text = sprintf('  EE [%.2f, %.2f] m', p2(1), p2(2));  % sprintf formatiert den Text mit Zahlenwerten
+text(ax2, p2(1), p2(2), label_text);  % text platziert eine Beschriftung an den angegebenen Koordinaten
 
 %% 7) DH-basierte Vorwärtskinematik mit Rahmendarstellung
 fprintf('\n=== DH‑basierte Vorwärtskinematik ===\n');
@@ -253,7 +269,7 @@ dh_table = [
     l1, 0, 0, 0;  % a, alpha, d, theta_offset
     l2, 0, 0, 0
 ];
-[Tee, Ts] = fkine_dh(dh_table, q);
+[Tee, Ts] = fkine_dh(dh_table, q);  % fkine_dh berechnet die Vorwärtskinematik der DH-Kette
 tprint4(Tee, 'T_{Basis->EE} aus DH‑Kette');
 
 % Zwischenrahmen darstellen

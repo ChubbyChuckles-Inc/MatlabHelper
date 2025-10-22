@@ -24,6 +24,7 @@ FileDialogFn = Callable[[QtWidgets.QWidget], Tuple[str, str]]
 
 DEFAULT_STATUS_MESSAGE = "Select a MATLAB script and target window to begin."
 LISTENER_ARMED_MESSAGE = "Listener armed. Press any key to reveal the next character."
+LISTENER_PAUSED_MESSAGE = "Listener paused. Press Pause to resume."
 
 
 class MainController(QtCore.QObject):
@@ -58,6 +59,7 @@ class MainController(QtCore.QObject):
         self._script_content: str = ""
         self._typed_index: int = 0
         self._last_key_timestamp: Optional[float] = None
+        self._listener_paused = False
 
         self._state_save_timer = QtCore.QTimer(self)
         self._state_save_timer.setSingleShot(True)
@@ -117,7 +119,8 @@ class MainController(QtCore.QObject):
                 self._app_state.selected_file_mtime = None
                 self._app_state.typed_index = 0
         self._app_state.listener_active = False
-        self._window.set_listener_state(False)
+        self._listener_paused = False
+        self._window.set_listener_state(False, paused=False)
 
     # ------------------------------------------------------------------
     # File selection
@@ -217,6 +220,9 @@ class MainController(QtCore.QObject):
                 self._window.set_status_message(DEFAULT_STATUS_MESSAGE)
                 return
             self._matlab_window = selected
+            self._listener_paused = False
+            if hasattr(self._window, "set_listener_pause_state"):
+                self._window.set_listener_pause_state(False)
             if self._typed_index >= len(self._script_content):
                 self._log("All characters have already been injected. Reset by reloading the file.")
                 self._window.set_listener_state(False)
@@ -240,11 +246,22 @@ class MainController(QtCore.QObject):
                 self._last_key_timestamp = None
                 if hasattr(self._injector, "reset_focus_cache"):
                     self._injector.reset_focus_cache()
+                self._listener_paused = False
+                if hasattr(self._window, "set_listener_pause_state"):
+                    self._window.set_listener_pause_state(False)
 
     @QtCore.pyqtSlot(str)
     def _handle_global_key(self, key_name: str) -> None:
+        norm_key = key_name.replace(" ", "").replace("_", "").lower()
+        if norm_key in {"pause", "pausebreak"}:
+            self._toggle_pause()
+            return
+
         if not self._selected_file or not self._matlab_window:
             self._log("Listener triggered without prerequisites.")
+            return
+
+        if self._listener_paused:
             return
 
         now = time.perf_counter()
@@ -256,6 +273,9 @@ class MainController(QtCore.QObject):
         chunk = self._next_chunk()
         if not chunk and not injector_pending:
             self._log("All characters injected; ignoring extra key press.")
+            self._listener_paused = False
+            if hasattr(self._window, "set_listener_pause_state"):
+                self._window.set_listener_pause_state(False)
             self._window.set_listener_state(False)
             self._last_key_timestamp = now
             return
@@ -371,12 +391,29 @@ class MainController(QtCore.QObject):
         self._schedule_state_save()
 
     def _on_listening_changed(self, active: bool) -> None:
-        self._window.set_listener_state(active)
+        if not active:
+            self._listener_paused = False
+        self._window.set_listener_state(active, paused=self._listener_paused)
         self._app_state.listener_active = active
         if active:
             self._window.set_status_message(LISTENER_ARMED_MESSAGE)
         else:
             self._window.set_status_message(DEFAULT_STATUS_MESSAGE)
+        self._schedule_state_save()
+
+    def _toggle_pause(self) -> None:
+        if not self._keyboard_monitor.is_listening():
+            return
+        self._listener_paused = not self._listener_paused
+        if hasattr(self._window, "set_listener_pause_state"):
+            self._window.set_listener_pause_state(self._listener_paused)
+        if self._listener_paused:
+            self._window.set_status_message(LISTENER_PAUSED_MESSAGE)
+            self._log("Listener paused. Press Pause to resume.")
+            self._last_key_timestamp = None
+        else:
+            self._window.set_status_message(LISTENER_ARMED_MESSAGE)
+            self._log("Listener resumed.")
         self._schedule_state_save()
 
     def _apply_window_selection_from_state(self, windows: Tuple[MatlabWindowInfo, ...]) -> None:

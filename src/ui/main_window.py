@@ -305,8 +305,12 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
         self._settings_controls = {}
         self._settings_updating = False
         self._current_settings = TypingSettings.from_defaults().clamped()
+        self._listener_paused = False
+        self._tray_icon = None
+        self._tray_icons: dict[str, QtGui.QIcon] = {}
         self._build_ui()
         self._apply_styling()
+        self._create_tray_icon()
 
     # ------------------------------------------------------------------
     # UI wiring
@@ -652,15 +656,22 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
     def selected_window(self) -> Optional[MatlabWindowInfo]:
         return self._window_selector.selected_window()
 
-    def set_listener_state(self, active: bool) -> None:
+    def set_listener_state(self, active: bool, paused: Optional[bool] = None) -> None:
         self._listener_button.setChecked(active)
         self._listener_button.setText("Stop Listening" if active else "Start Listening")
-        status_text = (
-            "Listening – random keys will reveal the script"
-            if active
-            else "Idle – press start to capture keys"
-        )
-        self._listener_status.setText(status_text)
+        if not active:
+            self._listener_paused = False
+        if paused is not None:
+            self._listener_paused = paused
+        self._update_listener_status(active)
+        self._update_tray_icon(active, self._listener_paused)
+
+    def set_listener_pause_state(self, paused: bool) -> None:
+        if self._listener_paused == paused:
+            return
+        self._listener_paused = paused
+        self._update_listener_status(self._listener_button.isChecked())
+        self._update_tray_icon(self._listener_button.isChecked(), self._listener_paused)
 
     def update_progress(self, typed: int, total: int, upcoming: str) -> None:
         total = max(total, 1)
@@ -949,4 +960,86 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # pragma: no cover - Qt lifecycle
         self.listener_toggled.emit(False)
+        if self._tray_icon is not None:
+            self._tray_icon.hide()
         super().closeEvent(event)
+
+    # ------------------------------------------------------------------
+    # Listener helpers
+    # ------------------------------------------------------------------
+
+    def _update_listener_status(self, active: bool) -> None:
+        if self._listener_status is None:
+            return
+        if active:
+            if self._listener_paused:
+                self._listener_status.setText("Paused – press PAUSE to resume")
+            else:
+                self._listener_status.setText("Listening – random keys will reveal the script")
+        else:
+            self._listener_status.setText("Idle – press start to capture keys")
+
+    # ------------------------------------------------------------------
+    # System tray integration
+    # ------------------------------------------------------------------
+
+    def _create_tray_icon(self) -> None:
+        if not QtWidgets.QSystemTrayIcon.isSystemTrayAvailable():
+            self._tray_icon = None
+            return
+        tray = QtWidgets.QSystemTrayIcon(self._icons.get("app"), self)
+        tray.activated.connect(self._on_tray_activated)
+        tray.setVisible(True)
+        self._tray_icon = tray
+        self._update_tray_icon(False, False)
+
+    def _update_tray_icon(self, active: bool, paused: bool) -> None:
+        if self._tray_icon is None:
+            return
+        if active:
+            if paused:
+                key = "paused"
+                tooltip = "MatlabHelper – Listener paused"
+            else:
+                key = "active"
+                tooltip = "MatlabHelper – Listener active"
+        else:
+            key = "idle"
+            tooltip = "MatlabHelper – Listener idle"
+        icon = self._tray_icons.get(key)
+        if icon is None:
+            color = {"idle": "#94A3B8", "active": "#22C55E", "paused": "#FACC15"}[key]
+            icon = self._build_tray_icon(color)
+            self._tray_icons[key] = icon
+        self._tray_icon.setIcon(icon)
+        self._tray_icon.setToolTip(tooltip)
+
+    def _build_tray_icon(self, color_hex: str) -> QtGui.QIcon:
+        base = self._icons.get("app")
+        pixmap = base.pixmap(32, 32)
+        if pixmap.isNull():
+            pixmap = QtGui.QPixmap(32, 32)
+            pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+        painter = QtGui.QPainter(pixmap)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QtGui.QColor(color_hex))
+        painter.setPen(QtCore.Qt.PenStyle.NoPen)
+        diameter = 10
+        margin = 4
+        painter.drawEllipse(
+            pixmap.width() - diameter - margin,
+            pixmap.height() - diameter - margin,
+            diameter,
+            diameter,
+        )
+        painter.end()
+        return QtGui.QIcon(pixmap)
+
+    def _on_tray_activated(self, reason: QtWidgets.QSystemTrayIcon.ActivationReason) -> None:
+        if reason in (
+            QtWidgets.QSystemTrayIcon.ActivationReason.Trigger,
+            QtWidgets.QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            self._restore_window()
+            self.showNormal()
+            self.activateWindow()

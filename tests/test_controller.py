@@ -7,7 +7,11 @@ from typing import Callable
 
 from PyQt6 import QtCore, QtWidgets
 
-from src.app.controller import MainController
+from src.app.controller import (
+    LISTENER_ARMED_MESSAGE,
+    LISTENER_PAUSED_MESSAGE,
+    MainController,
+)
 from src.models.matlab_window import MatlabWindowInfo
 from src.ui.main_window import MatlabHelperMainWindow
 
@@ -68,6 +72,9 @@ class StubKeyboardMonitor(QtCore.QObject):
     def fire(self, key_name: str) -> None:
         self.key_pressed.emit(key_name)
 
+    def is_listening(self) -> bool:
+        return self.started
+
 
 def test_controller_injects_matlab_script(qtbot, tmp_path: Path, monkeypatch) -> None:
     window = MatlabHelperMainWindow()
@@ -109,4 +116,50 @@ def test_controller_injects_matlab_script(qtbot, tmp_path: Path, monkeypatch) ->
     assert tempo is None or tempo >= 0
     assert source_inputs == ("space",)
     assert service.focus_calls == len(injector.calls)
+    assert errors == []
+
+
+def test_pause_key_toggles_listener(qtbot, tmp_path: Path, monkeypatch) -> None:
+    window = MatlabHelperMainWindow()
+    qtbot.addWidget(window)
+
+    service = StubWindowService()
+    monitor = StubKeyboardMonitor()
+    injector = StubInjector(service.focus_window)
+
+    script = tmp_path / "demo.m"
+    script.write_text("disp('hello world');\n")
+
+    errors: list[str] = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "critical", lambda *args: errors.append(args[2]))
+
+    controller = MainController(
+        window,
+        window_service=service,
+        injector=injector,
+        keyboard_monitor=monitor,
+        file_dialog=lambda parent: (str(script), ""),
+    )
+
+    window.select_file_requested.emit()
+    listener_button = window.findChild(QtWidgets.QPushButton, "ListenerButton")
+    assert listener_button is not None
+    qtbot.mouseClick(listener_button, QtCore.Qt.MouseButton.LeftButton)
+
+    monitor.fire("space")
+    assert injector.calls
+
+    before_pause = len(injector.calls)
+    monitor.fire("pause")
+
+    assert window.status_message() == LISTENER_PAUSED_MESSAGE
+
+    monitor.fire("enter")
+    assert len(injector.calls) == before_pause
+
+    monitor.fire("pause")
+    assert window.status_message() == LISTENER_ARMED_MESSAGE
+
+    monitor.fire("tab")
+    assert len(injector.calls) > before_pause
     assert errors == []
