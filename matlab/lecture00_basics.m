@@ -1,40 +1,51 @@
 function lecture00_basics()
-% Lecture 0 — MATLAB essentials for robotics (math, visualization, kinematics)
+% Vorlesung 0 — MATLAB‑Grundlagen für Robotik (Mathematik, Visualisierung, Kinematik)
 %
-% Purpose
-%   This overview orients you to MATLAB's math and plotting capabilities,
-%   then bridges into core robotics kinematics concepts. It is designed so
-%   that exporting the Command Window and figures to PDF provides a compact
-%   study reference. Run this file top-to-bottom (sections are ordered for
-%   clarity). All helper functions are defined BEFORE they are used.
+% Zweck
+%   Diese Übersicht macht Sie mit den mathematischen Fähigkeiten und den
+%   Visualisierungsmöglichkeiten von MATLAB vertraut und schlägt dann die
+%   Brücke zu zentralen Begriffen der Roboterkinematik. Die Ausgabe ist so
+%   gestaltet, dass sich die Texte im Command Window und die erzeugten
+%   Abbildungen gut als PDF‑Übersicht exportieren lassen.
 %
-% How to run
-%   - Open this file in MATLAB and press Run (or run section by section with %% cells)
-%   - Ensure the current folder is the repository root or the 'matlab' folder
-%   - Figures are created inline; keep them open when exporting to PDF
+% Ausführung
+%   - Datei in MATLAB öffnen und „Run“ ausführen (oder abschnittsweise mit %%‑Zellen)
+%   - Arbeitsordner auf das Repo bzw. den Ordner „matlab“ setzen
+%   - Abbildungen geöffnet lassen, wenn Sie in ein PDF exportieren
 %
-% What you'll practice
-%   1) MATLAB math essentials (arrays, linear algebra, numerics)
-%   2) Visualization: 2D, 3D, surfaces, vector fields, coordinate frames
-%   3) Kinematics: rotation matrices, homogeneous transforms, simple chains
-%   4) DH-based FK (brief), with frame drawing utilities
+% Lernziele
+%   1) MATLAB‑Mathe‑Basics (Vektoren/Matrizen, Lineare Algebra, Numerik)
+%   2) Visualisierung: 2D/3D‑Plots, Flächen, Koordinatenrahmen
+%   3) Kinematik: Rotationsmatrizen, homogene Transformationen, einfache Ketten
+%   4) DH‑basierte Vorwärtskinematik (kurz) inkl. Rahmendarstellung
 %
-% Conventions
-%   - Angles are in radians unless explicitly printed in degrees
-%   - Right-handed coordinate frames; Z out of the page by default
-%   - Transform T maps from a source frame to a target frame (post-multiply)
-%   - R is 3x3 rotation, p is 3x1 position, T is 4x4 homogeneous transform
+% Konventionen
+%   - Winkel sind in Radiant, außer wenn explizit in Grad ausgegeben
+%   - Rechtshändiges Koordinatensystem; Z‑Achse zeigt standardmäßig „aus der Seite“
+%   - Transformation T bildet mittels Post‑Multiplikation von einer Quelle auf ein Ziel ab
+%   - R ist 3×3‑Rotation, p ist 3×1‑Position, T ist 4×4‑Homogene
 
-%% Helper functions (defined first, then used below)
+%% Hilfsfunktionen (werden zuerst definiert und anschließend genutzt)
 
+    % d2r: Umrechnung von Grad nach Radiant
+    %   Eingabe: deg (Skalar/Array) in Grad
+    %   Ausgabe: Radiant gleicher Größe
+    %   Motivation: Viele Formeln in der Robotik arbeiten in Radiant.
     function out = d2r(deg)
         out = deg * pi/180;
     end
 
+    % r2d: Umrechnung von Radiant nach Grad
+    %   Eingabe: rad (Skalar/Array) in Radiant
+    %   Ausgabe: Grad gleicher Größe
+    %   Nützlich zum menschenlesbaren Ausgeben von Winkeln.
     function out = r2d(rad)
         out = rad * 180/pi;
     end
 
+    % rotX3/rotY3/rotZ3: elementare 3×3‑Rotationsmatrizen
+    %   Jeweils eine Rechtsdrehung um die entsprechende Achse.
+    %   Eigenschaften: R^T R = I, det(R) = 1 (SO(3)).
     function R = rotX3(theta)
         c = cos(theta); s = sin(theta);
         R = [1 0 0; 0 c -s; 0 s c];
@@ -50,32 +61,42 @@ function lecture00_basics()
         R = [c -s 0; s c 0; 0 0 1];
     end
 
+    % makeT: zusammengesetzte 4×4‑Transformation aus R und p
+    %   T = [ R p; 0 0 0 1 ]
+    %   R: 3×3, p: 3×1
     function T = makeT(R, p)
         T = eye(4);
         T(1:3,1:3) = R;
         T(1:3,4) = p(:);
     end
 
+    % transl4: reine Translation als 4×4‑Matrix
+    %   Praktisch zum sequentiellen Zusammensetzen von Posen.
     function T = transl4(x, y, z)
         T = eye(4);
         T(1:3,4) = [x; y; z];
     end
 
+    % isSO3: Prüft, ob R eine gültige Rotationsmatrix ist
+    %   Test: Orthonormalität und Determinante 1 innerhalb Toleranz.
     function tf = isSO3(R, tol)
         if nargin < 2, tol = 1e-9; end
         tf = norm(R'*R - eye(3), 2) < tol && abs(det(R) - 1) < tol;
     end
 
+    % tprint4: kompaktes Ausgeben einer 4×4‑Transformation
+    %   Druckt Position p und die 3×3‑Rotationsmatrix.
     function tprint4(T, label)
-        if nargin < 2, label = 'Transform'; end
+        if nargin < 2, label = 'Transformation'; end
         fprintf('\n%s\n', label);
         fprintf('  p (m): [%.4f %.4f %.4f]\n', T(1,4), T(2,4), T(3,4));
         fprintf('  R =\n');
         disp(T(1:3,1:3));
     end
 
+    % draw_frame3: zeichnet einen Koordinatenrahmen in 3D
+    %   Achsenfarben: X=rot, Y=grün, Z=blau; Pfeillänge über scale.
     function draw_frame3(ax, T, scale, lw)
-        % Draw a coordinate frame at transform T into axes ax
         if nargin < 3 || isempty(scale), scale = 0.1; end
         if nargin < 4 || isempty(lw), lw = 2; end
         o = T(1:3,4);
@@ -88,6 +109,9 @@ function lecture00_basics()
         quiver3(ax, o(1), o(2), o(3), z(1), z(2), z(3), 0, 'b', 'LineWidth', lw, 'MaxHeadSize', 0.5);
     end
 
+    % dh: Standard‑Denavit‑Hartenberg‑Matrix
+    %   Parameter: a (Linklänge), alpha (Verdrehung), d (Verschiebung), theta (Gelenkwinkel)
+    %   Liefert die homogene Einzel‑Transformation eines Glieds.
     function A = dh(a, alpha, d, theta)
         c = cos(theta); s = sin(theta); ca = cos(alpha); sa = sin(alpha);
         A = [c, -s*ca,  s*sa, a*c;
@@ -96,6 +120,10 @@ function lecture00_basics()
              0,      0,     0,   1];
     end
 
+    % fkine_dh: Vorwärtskinematik für eine DH‑Kette
+    %   dh_table: [a, alpha, d, theta_offset] je Zeile
+    %   q: Gelenkwinkelvektor (in Radiant)
+    %   Rückgabe: Endpose Tn und Zellarray Ts aller Zwischenposen
     function [Tn, Ts] = fkine_dh(dh_table, q)
         n = size(dh_table,1);
         Ts = cell(n+1,1); Ts{1} = eye(4);
@@ -107,6 +135,8 @@ function lecture00_basics()
         Tn = Ts{end};
     end
 
+    % plot_planar_chain: 2D‑Darstellung einer Gelenkkette (Punktfolge)
+    %   points: 2×N mit den Gelenkpositionen in der Ebene
     function plot_planar_chain(ax, points, opt)
         if nargin < 3, opt = struct(); end
         if ~isfield(opt,'lw'), opt.lw = 3; end
@@ -116,123 +146,124 @@ function lecture00_basics()
         xlabel(ax, 'X (m)'); ylabel(ax, 'Y (m)');
     end
 
-%% 1) Getting started: housekeeping
+%% 1) Einstieg: Aufräumen und Initialisierung
 clc; rng(0);
-fprintf('Lecture 0: MATLAB essentials for robotics\n');
-fprintf('Date: %s\n', datestr(now));
+fprintf('Vorlesung 0: MATLAB‑Grundlagen für Robotik\n');
+fprintf('Datum: %s\n', datestr(now));
 
-%% 2) Math essentials: arrays and linear algebra
-fprintf('\n=== Math essentials ===\n');
+%% 2) Mathematik-Grundlagen: Felder und Lineare Algebra
+fprintf('\n=== Mathematik-Grundlagen ===\n');
 
-% Arrays and element-wise math
-v = (1:5);                   % row vector
-w = v.^2;                    % element-wise power
-A = [1 2; 3 4];              % 2x2 matrix
+% Felder und elementweise Operationen
+v = (1:5);                   % Zeilenvektor
+w = v.^2;                    % Elementweise Potenz
+A = [1 2; 3 4];              % 2x2-Matrix
 B = [2 -1; 1 0.5];
-C = A*B;                     % matrix-matrix product
-D = A.*B;                    % element-wise multiply
-fprintf('A*B =\n'); disp(C);
-fprintf('A.*B =\n'); disp(D);
+C = A*B;                     % Matrixprodukt
+D = A.*B;                    % Elementweise Multiplikation
+fprintf('A*B (Matrixprodukt) =\n'); disp(C);
+fprintf('A.*B (elementweise) =\n'); disp(D);
 
-% Indexing and slicing
-M = reshape(1:12, [3,4]);    % 3x4 matrix with values 1..12
-fprintf('M(2,3) = %d, M(:,2) = [ %s ]\n', M(2,3), num2str(M(:,2).'));
+% Indizierung und Teilbereiche
+M = reshape(1:12, [3,4]);    % 3x4-Matrix mit den Werten 1..12
+fprintf('Indexierung: M(2,3) = %d, M(:,2) = [ %s ]\n', M(2,3), num2str(M(:,2).'));
 
-% Implicit expansion (broadcasting)
+% Implizite Erweiterung (Broadcasting)
 row = [1 2 3]; col = [10; 20; 30];
-S = row + col;               % 3x3 by broadcasting
-fprintf('row + col =\n'); disp(S);
+S = row + col;               % 3x3 durch Broadcasting
+fprintf('Broadcasting (Zeile + Spalte) =\n'); disp(S);
 
-% Solving linear systems and conditioning
+% Lineare Gleichungssysteme und Konditionierung
 A = [4 1 0; 1 3 -1; 0 -1 2]; b = [1; 2; 0.5];
 x = A\b; res = norm(A*x - b);
-fprintf('Solve Ax=b with \\: ‖Ax-b‖ = %.2e\n', res);
-fprintf('cond(A)2 = %.2f\n', cond(A));
+fprintf('Löse Ax=b mit \\: ‖Ax-b‖ = %.2e\n', res);
+fprintf('cond_2(A) = %.2f (Konditionszahl)\n', cond(A));
 
-% SVD and least squares
+% SVD und Ausgleichsrechnung
 M = randn(5,3); y = randn(5,1);
-[U,S,V] = svd(M, 'econ'); x_ls = M\y; sig = diag(S).';
-fprintf('SVD(M): singular values = [%.3f %.3f %.3f]\n', sig);
-fprintf('Least-squares solution norm = %.3f\n', norm(x_ls));
+[U,S,V] = svd(M, 'econ'); %#ok<ASGLU>
+x_ls = M\y; sig = diag(S).';
+fprintf('SVD(M): Singulärwerte = [%.3f %.3f %.3f]\n', sig);
+fprintf('Least‑Squares‑Lösung: ‖x‖ = %.3f\n', norm(x_ls));
 
-%% 3) Visualization: 2D and 3D
-fprintf('\n=== Visualization basics ===\n');
+%% 3) Visualisierung: 2D und 3D
+fprintf('\n=== Visualisierung — Grundlagen ===\n');
 
-% 2D plotting
+% 2D-Darstellung
 t = linspace(0, 2*pi, 200);
 y1 = sin(t); y2 = cos(t);
-figure('Name','2D plots');
+figure('Name','2D‑Plots');
 subplot(1,2,1);
 plot(t, y1, 'b-', 'LineWidth', 1.5); hold on; plot(t, y2, 'r--', 'LineWidth', 1.5);
-grid on; xlabel('t (rad)'); ylabel('amplitude'); legend('sin(t)', 'cos(t)'); title('Sine and Cosine');
+grid on; xlabel('t (rad)'); ylabel('Amplitude'); legend('sin(t)', 'cos(t)'); title('Sinus und Cosinus');
 
-% Scatter with labels
+% Streudiagramm mit Beschriftung
 xdata = linspace(-1,1,20); ydata = xdata.^2 + 0.05*randn(size(xdata));
 subplot(1,2,2);
-scatter(xdata, ydata, 40, 'filled'); grid on; xlabel('x'); ylabel('y'); title('Scatter example');
+scatter(xdata, ydata, 40, 'filled'); grid on; xlabel('x'); ylabel('y'); title('Punktwolke');
 
-% 3D plotting
-figure('Name','3D plots');
+% 3D-Darstellung
+figure('Name','3D‑Plots');
 subplot(1,2,1);
 t = linspace(0, 4*pi, 200); r = 0.2; z = linspace(0, 1, 200);
 x = r*cos(t); y = r*sin(t);
-plot3(x, y, z, 'm-', 'LineWidth', 2); grid on; axis equal; xlabel('X'); ylabel('Y'); zlabel('Z'); title('3D helix');
+plot3(x, y, z, 'm-', 'LineWidth', 2); grid on; axis equal; xlabel('X'); ylabel('Y'); zlabel('Z'); title('3D‑Helix');
 
 subplot(1,2,2);
 [X,Y] = meshgrid(linspace(-1,1,50)); Z = exp(-3*(X.^2 + Y.^2));
 surf(X,Y,Z); shading interp; colormap turbo; axis tight;
-xlabel('X'); ylabel('Y'); zlabel('Z'); title('Gaussian bump (surf)');
+xlabel('X'); ylabel('Y'); zlabel('Z'); title('Gauß‑Hügel (Fläche)');
 
-%% 4) Rotations and homogeneous transforms
-fprintf('\n=== Rotations and transforms ===\n');
+%% 4) Rotationen und homogene Transformationen
+fprintf('\n=== Rotationen und Transformationen ===\n');
 R = rotZ3(d2r(30)) * rotY3(d2r(15)) * rotX3(d2r(-10));
 fprintf('isSO3(R) = %d, det(R) = %.6f\n', isSO3(R), det(R));
 p = [0.3; -0.1; 0.2]; T = makeT(R, p);
-tprint4(T, 'Example transform T');
+tprint4(T, 'Beispiel‑Transformation T');
 
-% Compose transforms: base->A->B
+% Transformationen kombinieren: Basis->A->B
 Ta = makeT(rotZ3(d2r(20)), [0.2; 0.0; 0.0]);
 Tb = makeT(rotY3(d2r(10)), [0.0; 0.1; 0.0]);
-T_ab = Ta * Tb; tprint4(T_ab, 'Composed T = Ta * Tb');
+T_ab = Ta * Tb; tprint4(T_ab, 'Komposition T = Ta * Tb');
 
-%% 5) Visualizing coordinate frames in 3D
-fprintf('\n=== Frame visualization ===\n');
-fig = figure('Name','Frames'); ax = axes(fig);
+%% 5) Koordinatenrahmen in 3D visualisieren
+fprintf('\n=== Koordinatenrahmen visualisieren ===\n');
+fig = figure('Name','Rahmen'); ax = axes(fig);
 hold(ax, 'on'); grid(ax, 'on'); axis(ax, 'equal'); view(ax, 45, 25);
-xlabel(ax, 'X'); ylabel(ax, 'Y'); zlabel(ax, 'Z'); title(ax, 'Base and rotated frames');
-draw_frame3(ax, eye(4), 0.1, 2);          % base frame
-draw_frame3(ax, T, 0.1, 2);               % transformed frame
-legend(ax, {'X','Y','Z'});                % color meaning standard: X-red, Y-green, Z-blue
+xlabel(ax, 'X'); ylabel(ax, 'Y'); zlabel(ax, 'Z'); title(ax, 'Basis‑ und rotiertes Koordinatensystem');
+draw_frame3(ax, eye(4), 0.1, 2);          % Basisrahmen
+draw_frame3(ax, T, 0.1, 2);               % transformierter Rahmen
+% Hinweis: Farbkonvention der Achsen: X=rot, Y=grün, Z=blau
 
-%% 6) Planar 2R chain demo (no DH)
-fprintf('\n=== Planar 2R forward kinematics (geometry) ===\n');
+%% 6) Planare 2R-Kette ohne DH-Parameter
+fprintf('\n=== Planare 2R‑Vorwärtskinematik (Geometrie) ===\n');
 l1 = 0.35; l2 = 0.25; q = [d2r(35), d2r(-25)];
 p0 = [0;0];
 p1 = p0 + [l1*cos(q(1)); l1*sin(q(1))];
 p2 = p1 + [l2*cos(q(1)+q(2)); l2*sin(q(1)+q(2))];
-fprintf('End-effector (x,y) = [%.3f, %.3f] m\n', p2(1), p2(2));
+fprintf('Endeffektor (x,y) = [%.3f, %.3f] m\n', p2(1), p2(2));
 
 fig2 = figure('Name','Planar 2R'); ax2 = axes(fig2);
-plot_planar_chain(ax2, [p0 p1 p2]); title(ax2, '2R planar arm');
+plot_planar_chain(ax2, [p0 p1 p2]); title(ax2, '2R‑Planararm');
 text(ax2, p2(1), p2(2), sprintf('  EE [%.2f, %.2f] m', p2(1), p2(2)));
 
-%% 7) DH-based FK (brief) and frame drawing
-fprintf('\n=== DH-based forward kinematics ===\n');
+%% 7) DH-basierte Vorwärtskinematik mit Rahmendarstellung
+fprintf('\n=== DH‑basierte Vorwärtskinematik ===\n');
 dh_table = [
     l1, 0, 0, 0;  % a, alpha, d, theta_offset
     l2, 0, 0, 0
 ];
 [Tee, Ts] = fkine_dh(dh_table, q);
-tprint4(Tee, 'T_{base->ee} from DH chain');
+tprint4(Tee, 'T_{Basis->EE} aus DH‑Kette');
 
-% Draw intermediate frames
-fig3 = figure('Name','DH Frames'); ax3 = axes(fig3);
+% Zwischenrahmen darstellen
+fig3 = figure('Name','DH‑Rahmen'); ax3 = axes(fig3);
 hold(ax3, 'on'); grid(ax3, 'on'); axis(ax3, 'equal'); view(ax3, 30, 25);
-xlabel(ax3, 'X'); ylabel(ax3, 'Y'); zlabel(ax3, 'Z'); title(ax3, 'Frames along DH chain');
+xlabel(ax3, 'X'); ylabel(ax3, 'Y'); zlabel(ax3, 'Z'); title(ax3, 'Rahmen entlang der DH‑Kette');
 for i = 1:numel(Ts)
     draw_frame3(ax3, Ts{i}, 0.08, 2);
 end
 draw_frame3(ax3, Tee, 0.1, 3);
 
-fprintf('\nEnd of Lecture 0. Suggested next step: run Lecture 1 utilities.\n');
+fprintf('\nEnde von Vorlesung 0. Vorschlag: Fahren Sie mit Vorlesung 1 (Utilities) fort.\n');
 end

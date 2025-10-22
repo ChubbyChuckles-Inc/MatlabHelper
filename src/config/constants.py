@@ -20,8 +20,8 @@ def _app_data_dir() -> Path:
 APP_NAME: str = "MatlabHelper"
 SUPPORTED_EXTENSION: str = ".m"
 DEFAULT_WORKDIR: Path = Path.home()
-MATLAB_WINDOW_KEYWORDS: tuple[str, ...] = ("MATLAB", "Editor")
 ICON_DIR: Path = _project_root() / "icons"
+APP_ICON_PATH: Path = _project_root() / "Matlab_Logo.png"
 MAX_PREVIEW_CHARS: int = 24
 INJECTION_PRE_FOCUS_DELAY_SECONDS: float = 0.12
 TYPE_CHAR_DELAY_SECONDS: float = 0.0  # retained for compatibility but unused by injector

@@ -8,7 +8,7 @@ from typing import Iterable, List, Optional, Tuple
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from src.config.constants import APP_NAME, ICON_DIR, MAX_PREVIEW_CHARS
+from src.config.constants import APP_NAME, APP_ICON_PATH, ICON_DIR, MAX_PREVIEW_CHARS
 from src.models.matlab_window import MatlabWindowInfo
 from src.models.typing_settings import TypingSettings
 
@@ -19,13 +19,16 @@ class _IconRegistry:
 
     def get(self, name: str) -> QtGui.QIcon:
         if name not in self._cache:
-            icon_path = ICON_DIR / f"{name}.svg"
-            if icon_path.exists():
-                self._cache[name] = QtGui.QIcon(str(icon_path))
+            if name == "app" and APP_ICON_PATH.exists():
+                self._cache[name] = QtGui.QIcon(str(APP_ICON_PATH))
             else:
-                self._cache[name] = QtWidgets.QApplication.style().standardIcon(
-                    QtWidgets.QStyle.StandardPixmap.SP_FileIcon
-                )
+                icon_path = ICON_DIR / f"{name}.svg"
+                if icon_path.exists():
+                    self._cache[name] = QtGui.QIcon(str(icon_path))
+                else:
+                    self._cache[name] = QtWidgets.QApplication.style().standardIcon(
+                        QtWidgets.QStyle.StandardPixmap.SP_FileIcon
+                    )
         return self._cache[name]
 
     def pixmap(self, name: str, size: Tuple[int, int] = (24, 24)) -> QtGui.QPixmap:

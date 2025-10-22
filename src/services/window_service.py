@@ -12,7 +12,6 @@ except ImportError:  # pragma: no cover - exercised through dependency injection
     win32con = None  # type: ignore[assignment]
     win32gui = None  # type: ignore[assignment]
 
-from src.config.constants import MATLAB_WINDOW_KEYWORDS
 from src.models.matlab_window import MatlabWindowInfo
 
 
@@ -44,7 +43,7 @@ class MatlabWindowService:
         )
 
     def get_active_matlab_window(self) -> Optional[MatlabWindowInfo]:
-        """Return the currently focused MATLAB editor window, if available."""
+        """Return the currently focused top-level window, if available."""
 
         if not self.is_supported():
             raise MatlabWindowDetectionError(
@@ -56,13 +55,13 @@ class MatlabWindowService:
         if hwnd == 0:
             return None
 
-        title = str(self._gui.GetWindowText(hwnd))
-        if not any(keyword.lower() in title.lower() for keyword in MATLAB_WINDOW_KEYWORDS):
+        title = str(self._gui.GetWindowText(hwnd)).strip()
+        if not title:
             return None
-        return MatlabWindowInfo(handle=hwnd, title=title.strip())
+        return MatlabWindowInfo(handle=hwnd, title=title)
 
     def list_matlab_windows(self) -> List[MatlabWindowInfo]:
-        """Enumerate all open MATLAB editor windows."""
+        """Enumerate all open top-level windows with a title."""
 
         if not self.is_supported():
             raise MatlabWindowDetectionError(
@@ -75,20 +74,19 @@ class MatlabWindowService:
         seen: set[int] = set()
 
         def _callback(hwnd: int, _param: int) -> bool:
+            if hwnd in seen:
+                return True
             title = str(self._gui.GetWindowText(hwnd)).strip()
             if not title:
                 return True
-            if hwnd in seen:
-                return True
-            if any(keyword.lower() in title.lower() for keyword in MATLAB_WINDOW_KEYWORDS):
-                windows.append(MatlabWindowInfo(handle=hwnd, title=title))
-                seen.add(hwnd)
+            windows.append(MatlabWindowInfo(handle=hwnd, title=title))
+            seen.add(hwnd)
             return True
 
         try:
             self._gui.EnumWindows(_callback, 0)
         except Exception as exc:  # pragma: no cover - rare win32 enumeration failure
-            raise MatlabWindowDetectionError("Failed to enumerate MATLAB windows.") from exc
+            raise MatlabWindowDetectionError("Failed to enumerate windows.") from exc
 
         windows.sort(key=lambda info: info.title.lower())
         return windows
@@ -101,9 +99,9 @@ class MatlabWindowService:
 
         assert self._gui is not None and self._con is not None
         if not window.is_valid():
-            raise MatlabWindowDetectionError("Cannot focus an invalid MATLAB window.")
+            raise MatlabWindowDetectionError("Cannot focus an invalid window.")
         try:
             self._gui.ShowWindow(window.handle, self._con.SW_RESTORE)
             self._gui.SetForegroundWindow(window.handle)
         except Exception as exc:  # pragma: no cover - rare win32 specific errors
-            raise MatlabWindowDetectionError("Failed to focus MATLAB editor window.") from exc
+            raise MatlabWindowDetectionError("Failed to focus target window.") from exc
