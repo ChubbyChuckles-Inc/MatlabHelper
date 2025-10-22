@@ -95,6 +95,23 @@ def test_list_matlab_windows_returns_all_titled_windows() -> None:
     assert all(info.handle in {10, 11, 13} for info in enumerated)
 
 
+def test_ctypes_fallback_used_when_pywin32_missing(monkeypatch) -> None:
+    windows = {41: "Fallback Window"}
+    gui = FakeWin32Gui(41, "Fallback Window", windows=windows)
+    con = FakeWin32Con(SW_RESTORE=9)
+
+    monkeypatch.setattr("src.services.window_service.win32gui", None)
+    monkeypatch.setattr("src.services.window_service.win32con", None)
+    monkeypatch.setattr("src.services.window_service._load_ctypes_win32", lambda: (gui, con))
+
+    service = MatlabWindowService(platform_checker=lambda: "win32")
+
+    windows_found = service.list_matlab_windows()
+
+    assert len(windows_found) == 1
+    assert windows_found[0].title == "Fallback Window"
+
+
 def test_detection_raises_on_unsupported_platform() -> None:
     service = MatlabWindowService(platform_checker=lambda: "linux")
 

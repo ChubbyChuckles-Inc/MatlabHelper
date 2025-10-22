@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 try:
     import win32con
@@ -11,6 +11,56 @@ try:
 except ImportError:  # pragma: no cover - exercised through dependency injection in tests
     win32con = None  # type: ignore[assignment]
     win32gui = None  # type: ignore[assignment]
+
+
+def _load_ctypes_win32() -> Tuple[Optional[object], Optional[object]]:
+    """Return ctypes-based replacements for win32gui/win32con when unavailable."""
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception:  # pragma: no cover - missing ctypes on exotic interpreters
+        return None, None
+
+    try:
+        user32 = ctypes.windll.user32
+    except AttributeError:  # pragma: no cover - non-Windows platforms
+        return None, None
+
+    class _CTypesWin32Gui:
+        def __init__(self) -> None:
+            self._user32 = user32
+            self._enum_proc = None
+
+        def GetForegroundWindow(self) -> int:
+            return int(self._user32.GetForegroundWindow())
+
+        def GetWindowText(self, hwnd: int) -> str:
+            length = int(self._user32.GetWindowTextLengthW(hwnd))
+            buffer = ctypes.create_unicode_buffer(length + 2)
+            self._user32.GetWindowTextW(hwnd, buffer, len(buffer))
+            return buffer.value
+
+        def EnumWindows(self, callback, param) -> None:
+            cmp_func = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+
+            def _proc(hwnd, lparam) -> bool:  # pragma: no cover - ctypes glue
+                return bool(callback(int(hwnd), int(lparam)))
+
+            self._enum_proc = cmp_func(_proc)
+            self._user32.EnumWindows(self._enum_proc, param)
+
+        def ShowWindow(self, hwnd: int, flag: int) -> None:
+            self._user32.ShowWindow(hwnd, flag)
+
+        def SetForegroundWindow(self, hwnd: int) -> None:
+            self._user32.SetForegroundWindow(hwnd)
+
+    class _CTypesWin32Con:
+        SW_RESTORE = 9
+
+    return _CTypesWin32Gui(), _CTypesWin32Con()
+
 
 from src.models.matlab_window import MatlabWindowInfo
 
@@ -29,8 +79,17 @@ class MatlabWindowService:
         con_module: Optional[object] = None,
         platform_checker: Callable[[], str] = (lambda: sys.platform),
     ) -> None:
-        self._gui = gui_module if gui_module is not None else win32gui
-        self._con = con_module if con_module is not None else win32con
+        default_gui = win32gui
+        default_con = win32con
+        if default_gui is None or default_con is None:
+            fallback_gui, fallback_con = _load_ctypes_win32()
+            if default_gui is None and fallback_gui is not None:
+                default_gui = fallback_gui
+            if default_con is None and fallback_con is not None:
+                default_con = fallback_con
+
+        self._gui = gui_module if gui_module is not None else default_gui
+        self._con = con_module if con_module is not None else default_con
         self._platform_checker = platform_checker
 
     # We avoid property for test clarity
