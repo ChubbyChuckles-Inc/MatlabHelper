@@ -20,124 +20,122 @@ function lecture00_basics()
 
 %% Hilfsfunktionen (werden zuerst definiert und anschließend genutzt)
 
-    % d2r: Umrechnung von Grad nach Radiant
-    %   Eingabe: deg (Skalar/Array) in Grad
-    %   Ausgabe: Radiant gleicher Größe
-   
-    function out = d2r(deg)
-        out = deg * pi/180;
-    end
+% d2r: Umrechnung von Grad nach Radiant
+%   Eingabe: deg (Skalar/Array) in Grad
+%   Ausgabe: Radiant gleicher Größe
+function out = d2r(deg)
+    out = deg * pi/180;
+end
 
-    % r2d: Umrechnung von Radiant nach Grad
-    %   Eingabe: rad (Skalar/Array) in Radiant
-    %   Ausgabe: Grad gleicher Größe
-   
-    function out = r2d(rad)
-        out = rad * 180/pi;
-    end
+% r2d: Umrechnung von Radiant nach Grad
+%   Eingabe: rad (Skalar/Array) in Radiant
+%   Ausgabe: Grad gleicher Größe
+function out = r2d(rad)
+    out = rad * 180/pi;
+end
 
-    % rotX3/rotY3/rotZ3: elementare 3×3‑Rotationsmatrizen
-    %   Jeweils eine Rechtsdrehung um die entsprechende Achse.
-    %   Eigenschaften: R^T R = I, det(R) = 1 (SO(3)).
-    function R = rotX3(theta)
-        c = cos(theta); s = sin(theta);
-        R = [1 0 0; 0 c -s; 0 s c];
-    end
+% rotX3/rotY3/rotZ3: elementare 3×3‑Rotationsmatrizen
+%   Jeweils eine Rechtsdrehung um die entsprechende Achse.
+%   Eigenschaften: R^T R = I, det(R) = 1 (SO(3)).
+function R = rotX3(theta)
+    c = cos(theta); s = sin(theta);
+    R = [1 0 0; 0 c -s; 0 s c];
+end
 
-    function R = rotY3(theta)
-        c = cos(theta); s = sin(theta);
-        R = [c 0 s; 0 1 0; -s 0 c];
-    end
+function R = rotY3(theta)
+    c = cos(theta); s = sin(theta);
+    R = [c 0 s; 0 1 0; -s 0 c];
+end
 
-    function R = rotZ3(theta)
-        c = cos(theta); s = sin(theta);
-        R = [c -s 0; s c 0; 0 0 1];
-    end
+function R = rotZ3(theta)
+    c = cos(theta); s = sin(theta);
+    R = [c -s 0; s c 0; 0 0 1];
+end
 
-    % makeT: zusammengesetzte 4×4‑Transformation aus R und p
-    %   T = [ R p; 0 0 0 1 ]
-    %   R: 3×3, p: 3×1
-    function T = makeT(R, p)
-        T = eye(4);
-        T(1:3,1:3) = R;
-        T(1:3,4) = p(:);
-    end
+% makeT: zusammengesetzte 4×4‑Transformation aus R und p
+%   T = [ R p; 0 0 0 1 ]
+%   R: 3×3, p: 3×1
+function T = makeT(R, p)
+    T = eye(4);
+    T(1:3,1:3) = R;
+    T(1:3,4) = p(:);
+end
 
-    % transl4: reine Translation als 4×4‑Matrix
-    %   Praktisch zum sequentiellen Zusammensetzen von Posen.
-    function T = transl4(x, y, z)
-        T = eye(4);
-        T(1:3,4) = [x; y; z];
-    end
+% transl4: reine Translation als 4×4‑Matrix
+%   Praktisch zum sequentiellen Zusammensetzen von Posen.
+function T = transl4(x, y, z)
+    T = eye(4);
+    T(1:3,4) = [x; y; z];
+end
 
-    % isSO3: Prüft, ob R eine gültige Rotationsmatrix ist
-    %   Test: Orthonormalität und Determinante 1 innerhalb Toleranz.
-    function tf = isSO3(R, tol)
-        if nargin < 2, tol = 1e-9; end
-        tf = norm(R'*R - eye(3), 2) < tol && abs(det(R) - 1) < tol;
-    end
+% isSO3: Prüft, ob R eine gültige Rotationsmatrix ist
+%   Test: Orthonormalität und Determinante 1 innerhalb Toleranz.
+function tf = isSO3(R, tol)
+    if nargin < 2, tol = 1e-9; end
+    tf = norm(R'*R - eye(3), 2) < tol && abs(det(R) - 1) < tol;
+end
 
-    % tprint4: kompaktes Ausgeben einer 4×4‑Transformation
-    %   Druckt Position p und die 3×3‑Rotationsmatrix.
-    function tprint4(T, label)
-        if nargin < 2, label = 'Transformation'; end
-        fprintf('\n%s\n', label);
-        fprintf('  p (m): [%.4f %.4f %.4f]\n', T(1,4), T(2,4), T(3,4));
-        fprintf('  R =\n');
-        disp(T(1:3,1:3));
-    end
+% tprint4: kompaktes Ausgeben einer 4×4‑Transformation
+%   Druckt Position p und die 3×3‑Rotationsmatrix.
+function tprint4(T, label)
+    if nargin < 2, label = 'Transformation'; end
+    fprintf('\n%s\n', label);
+    fprintf('  p (m): [%.4f %.4f %.4f]\n', T(1,4), T(2,4), T(3,4));
+    fprintf('  R =\n');
+    disp(T(1:3,1:3));
+end
 
-    % draw_frame3: zeichnet einen Koordinatenrahmen in 3D
-    %   Achsenfarben: X=rot, Y=grün, Z=blau; Pfeillänge über scale.
-    function draw_frame3(ax, T, scale, lw)
-        if nargin < 3 || isempty(scale), scale = 0.1; end
-        if nargin < 4 || isempty(lw), lw = 2; end
-        o = T(1:3,4);
-        x = T(1:3,1) * scale;
-        y = T(1:3,2) * scale;
-        z = T(1:3,3) * scale;
-        hold(ax, 'on');
-        quiver3(ax, o(1), o(2), o(3), x(1), x(2), x(3), 0, 'r', 'LineWidth', lw, 'MaxHeadSize', 0.5);
-        quiver3(ax, o(1), o(2), o(3), y(1), y(2), y(3), 0, 'g', 'LineWidth', lw, 'MaxHeadSize', 0.5);
-        quiver3(ax, o(1), o(2), o(3), z(1), z(2), z(3), 0, 'b', 'LineWidth', lw, 'MaxHeadSize', 0.5);
-    end
+% draw_frame3: zeichnet einen Koordinatenrahmen in 3D
+%   Achsenfarben: X=rot, Y=grün, Z=blau; Pfeillänge über scale.
+function draw_frame3(ax, T, scale, lw)
+    if nargin < 3 || isempty(scale), scale = 0.1; end
+    if nargin < 4 || isempty(lw), lw = 2; end
+    o = T(1:3,4);
+    x = T(1:3,1) * scale;
+    y = T(1:3,2) * scale;
+    z = T(1:3,3) * scale;
+    hold(ax, 'on');
+    quiver3(ax, o(1), o(2), o(3), x(1), x(2), x(3), 0, 'r', 'LineWidth', lw, 'MaxHeadSize', 0.5);
+    quiver3(ax, o(1), o(2), o(3), y(1), y(2), y(3), 0, 'g', 'LineWidth', lw, 'MaxHeadSize', 0.5);
+    quiver3(ax, o(1), o(2), o(3), z(1), z(2), z(3), 0, 'b', 'LineWidth', lw, 'MaxHeadSize', 0.5);
+end
 
-    % dh: Standard‑Denavit‑Hartenberg‑Matrix
-    %   Parameter: a (Linklänge), alpha (Verdrehung), d (Verschiebung), theta (Gelenkwinkel)
-    %   Liefert die homogene Einzel‑Transformation eines Glieds.
-    function A = dh(a, alpha, d, theta)
-        c = cos(theta); s = sin(theta); ca = cos(alpha); sa = sin(alpha);
-        A = [c, -s*ca,  s*sa, a*c;
-             s,  c*ca, -c*sa, a*s;
-             0,     sa,    ca,   d;
-             0,      0,     0,   1];
-    end
+% dh: Standard‑Denavit‑Hartenberg‑Matrix
+%   Parameter: a (Linklänge), alpha (Verdrehung), d (Verschiebung), theta (Gelenkwinkel)
+%   Liefert die homogene Einzel‑Transformation eines Glieds.
+function A = dh(a, alpha, d, theta)
+    c = cos(theta); s = sin(theta); ca = cos(alpha); sa = sin(alpha);
+    A = [c, -s*ca,  s*sa, a*c;
+         s,  c*ca, -c*sa, a*s;
+         0,     sa,    ca,   d;
+         0,      0,     0,   1];
+end
 
-    % fkine_dh: Vorwärtskinematik für eine DH‑Kette
-    %   dh_table: [a, alpha, d, theta_offset] je Zeile
-    %   q: Gelenkwinkelvektor (in Radiant)
-    %   Rückgabe: Endpose Tn und Zellarray Ts aller Zwischenposen
-    function [Tn, Ts] = fkine_dh(dh_table, q)
-        n = size(dh_table,1);
-        Ts = cell(n+1,1); Ts{1} = eye(4);
-        for i=1:n
-            a = dh_table(i,1); alpha = dh_table(i,2); d = dh_table(i,3); th0 = dh_table(i,4);
-            th = q(i) + th0;
-            Ts{i+1} = Ts{i} * dh(a, alpha, d, th);
-        end
-        Tn = Ts{end};
+% fkine_dh: Vorwärtskinematik für eine DH‑Kette
+%   dh_table: [a, alpha, d, theta_offset] je Zeile
+%   q: Gelenkwinkelvektor (in Radiant)
+%   Rückgabe: Endpose Tn und Zellarray Ts aller Zwischenposen
+function [Tn, Ts] = fkine_dh(dh_table, q)
+    n = size(dh_table,1);
+    Ts = cell(n+1,1); Ts{1} = eye(4);
+    for i = 1:n
+        a = dh_table(i,1); alpha = dh_table(i,2); d = dh_table(i,3); th0 = dh_table(i,4);
+        th = q(i) + th0;
+        Ts{i+1} = Ts{i} * dh(a, alpha, d, th);
     end
+    Tn = Ts{end};
+end
 
-    % plot_planar_chain: 2D‑Darstellung einer Gelenkkette (Punktfolge)
-    %   points: 2×N mit den Gelenkpositionen in der Ebene
-    function plot_planar_chain(ax, points, opt)
-        if nargin < 3, opt = struct(); end
-        if ~isfield(opt,'lw'), opt.lw = 3; end
-        if ~isfield(opt,'ms'), opt.ms = 30; end
-        plot(ax, points(1,:), points(2,:), '-o', 'LineWidth', opt.lw, 'MarkerSize', opt.ms/3);
-        axis(ax, 'equal'); grid(ax, 'on');
-        xlabel(ax, 'X (m)'); ylabel(ax, 'Y (m)');
-    end
+% plot_planar_chain: 2D‑Darstellung einer Gelenkkette (Punktfolge)
+%   points: 2×N mit den Gelenkpositionen in der Ebene
+function plot_planar_chain(ax, points, opt)
+    if nargin < 3, opt = struct(); end
+    if ~isfield(opt,'lw'), opt.lw = 3; end
+    if ~isfield(opt,'ms'), opt.ms = 30; end
+    plot(ax, points(1,:), points(2,:), '-o', 'LineWidth', opt.lw, 'MarkerSize', opt.ms/3);
+    axis(ax, 'equal'); grid(ax, 'on');
+    xlabel(ax, 'X (m)'); ylabel(ax, 'Y (m)');
+end
 
 %% 1) Einstieg: Aufräumen und Initialisierung
 clc;  % Räumt das Command Window auf

@@ -973,9 +973,11 @@ class MatlabHelperMainWindow(QtWidgets.QMainWindow):
             return
         if active:
             if self._listener_paused:
-                self._listener_status.setText("Paused – press PAUSE to resume")
+                self._listener_status.setText("Paused – press AltGr to resume")
             else:
-                self._listener_status.setText("Listening – random keys will reveal the script")
+                self._listener_status.setText(
+                    "Listening – random keys reveal the script (AltGr toggles pause)"
+                )
         else:
             self._listener_status.setText("Idle – press start to capture keys")
 

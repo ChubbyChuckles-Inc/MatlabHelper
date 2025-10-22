@@ -24,7 +24,7 @@ FileDialogFn = Callable[[QtWidgets.QWidget], Tuple[str, str]]
 
 DEFAULT_STATUS_MESSAGE = "Select a MATLAB script and target window to begin."
 LISTENER_ARMED_MESSAGE = "Listener armed. Press any key to reveal the next character."
-LISTENER_PAUSED_MESSAGE = "Listener paused. Press Pause to resume."
+LISTENER_PAUSED_MESSAGE = "Listener paused. Press AltGr to resume."
 
 
 class MainController(QtCore.QObject):
@@ -253,7 +253,7 @@ class MainController(QtCore.QObject):
     @QtCore.pyqtSlot(str)
     def _handle_global_key(self, key_name: str) -> None:
         norm_key = key_name.replace(" ", "").replace("_", "").lower()
-        if norm_key in {"pause", "pausebreak"}:
+        if norm_key in {"altgr", "altgraph"}:
             self._toggle_pause()
             return
 
@@ -409,7 +409,7 @@ class MainController(QtCore.QObject):
             self._window.set_listener_pause_state(self._listener_paused)
         if self._listener_paused:
             self._window.set_status_message(LISTENER_PAUSED_MESSAGE)
-            self._log("Listener paused. Press Pause to resume.")
+            self._log("Listener paused. Press AltGr to resume.")
             self._last_key_timestamp = None
         else:
             self._window.set_status_message(LISTENER_ARMED_MESSAGE)

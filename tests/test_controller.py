@@ -119,7 +119,7 @@ def test_controller_injects_matlab_script(qtbot, tmp_path: Path, monkeypatch) ->
     assert errors == []
 
 
-def test_pause_key_toggles_listener(qtbot, tmp_path: Path, monkeypatch) -> None:
+def test_altgr_toggles_listener(qtbot, tmp_path: Path, monkeypatch) -> None:
     window = MatlabHelperMainWindow()
     qtbot.addWidget(window)
 
@@ -150,14 +150,14 @@ def test_pause_key_toggles_listener(qtbot, tmp_path: Path, monkeypatch) -> None:
     assert injector.calls
 
     before_pause = len(injector.calls)
-    monitor.fire("pause")
+    monitor.fire("AltGr")
 
     assert window.status_message() == LISTENER_PAUSED_MESSAGE
 
     monitor.fire("enter")
     assert len(injector.calls) == before_pause
 
-    monitor.fire("pause")
+    monitor.fire("AltGr")
     assert window.status_message() == LISTENER_ARMED_MESSAGE
 
     monitor.fire("tab")
