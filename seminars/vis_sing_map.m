@@ -143,7 +143,9 @@ robot_joints = scatter3(ax, nan, nan, nan, 70, [0.15 0.15 0.15], 'filled');
 robot_ee = scatter3(ax, nan, nan, nan, 140, [0.85 0.1 0.1], 'filled');
 
 % Endeffektor-Trail (optional)
-ee_trail = plot3(ax, nan, nan, nan, '-', 'LineWidth', 1.5, 'Color', [0.85 0.1 0.1 0.35]);
+% Hinweis: RGBA-Farben ([r g b a]) sind je nach MATLAB-Version nicht überall
+% verfügbar. Wir nutzen deshalb eine normale RGB-Farbe.
+ee_trail = plot3(ax, nan, nan, nan, '-', 'LineWidth', 1.5, 'Color', [0.85 0.1 0.1]);
 
 % Geschwindigkeit-Ellipsoid (optional): v = Jv qdot, ||qdot||=1
 % surf benötigt Matrizen für X/Y/Z. Wir initialisieren daher mit 2x2 NaNs.
@@ -186,10 +188,19 @@ cb_show_ell = uicontrol('Parent', panel, 'Style', 'checkbox', 'Units', 'normaliz
 cb_show_trail = uicontrol('Parent', panel, 'Style', 'checkbox', 'Units', 'normalized', ...
     'Position', [0.05 0.57 0.90 0.04], 'Value', 1, 'String', 'Show EE trail');
 
+% Neuer UX-Control: Wie viele Punkte sollen als "nahe" hervorgehoben werden?
+uicontrol('Parent', panel, 'Style', 'text', 'Units', 'normalized', ...
+    'Position', [0.05 0.48 0.90 0.04], 'String', 'Highlight Count (nearest in joint-space):', ...
+    'HorizontalAlignment', 'left');
+hl_slider = uicontrol('Parent', panel, 'Style', 'slider', 'Units', 'normalized', ...
+    'Position', [0.05 0.44 0.90 0.04], 'Min', 0, 'Max', 500, 'Value', 120);
+hl_label = uicontrol('Parent', panel, 'Style', 'text', 'Units', 'normalized', ...
+    'Position', [0.05 0.40 0.90 0.04], 'String', '', 'HorizontalAlignment', 'left');
+
 btn_home = uicontrol('Parent', panel, 'Style', 'pushbutton', 'Units', 'normalized', ...
-    'Position', [0.05 0.52 0.43 0.05], 'String', 'Home');
+    'Position', [0.05 0.33 0.43 0.05], 'String', 'Home');
 btn_rand = uicontrol('Parent', panel, 'Style', 'pushbutton', 'Units', 'normalized', ...
-    'Position', [0.52 0.52 0.43 0.05], 'String', 'Random');
+    'Position', [0.52 0.33 0.43 0.05], 'String', 'Random');
 
 % Data in guidata
 data = struct();
@@ -211,6 +222,9 @@ data.score_all = score_all;
 data.sing_threshold = sing_threshold;
 data.display_fraction = display_fraction;
 
+% Stable subsampling (damit "Display Density" sichtbar wirkt und nicht flackert)
+data.cloud_perm = [];
+
 data.P_sing = P_all(isSing,:);
 data.Q_sing = Q_all(isSing,:);
 data.score_sing = score_all(isSing);
@@ -224,17 +238,18 @@ labels = gobjects(1,6);
 q_current = q0;
 
 for i = 1:6
-    % Joint-Controls weiter unten (Platz für Threshold/Toggles oben)
-    y = 0.45 - (i-1)*0.07;
+    % Joint-Controls: eine Zeile pro Gelenk (keine Überlappung)
+    % Wichtig: genug Abstand zur Status-Box unten
+    y = 0.295 - (i-1)*0.038;
 
     labels(i) = uicontrol('Parent', panel, 'Style', 'text', 'Units', 'normalized', ...
-        'Position', [0.05 y 0.25 0.06], 'String', sprintf('q%d', i), 'HorizontalAlignment', 'left');
+        'Position', [0.05 y 0.18 0.04], 'String', sprintf('q%d [deg]', i), 'HorizontalAlignment', 'left');
 
     sliders(i) = uicontrol('Parent', panel, 'Style', 'slider', 'Units', 'normalized', ...
-        'Position', [0.30 y 0.60 0.06], 'Min', q_min(i), 'Max', q_max(i), 'Value', q_current(i));
+        'Position', [0.24 y 0.50 0.04], 'Min', q_min(i), 'Max', q_max(i), 'Value', q_current(i));
 
     edits(i) = uicontrol('Parent', panel, 'Style', 'edit', 'Units', 'normalized', ...
-        'Position', [0.05 y 0.90 0.05], 'String', sprintf('q%d = %.1f°', i, rad2deg(q_current(i))));
+        'Position', [0.76 y 0.19 0.04], 'String', sprintf('%.1f', rad2deg(q_current(i))));
 
     % Callback: slider -> edit + update
     sliders(i).Callback = @(src,~) onSliderChanged(src, i);
@@ -245,8 +260,8 @@ end
 
 % Info text
 infoText = uicontrol('Parent', panel, 'Style', 'text', 'Units', 'normalized', ...
-    'Position', [0.05 0.02 0.90 0.18], 'String', 'Ziehe Slider oder tippe Grad-Wert.', ...
-    'HorizontalAlignment', 'left');
+    'Position', [0.05 0.005 0.90 0.085], 'String', 'Ziehe Slider oder tippe Grad-Wert.', ...
+    'HorizontalAlignment', 'left', 'FontSize', 9);
 
 data.sliders = sliders;
 data.edits = edits;
@@ -256,6 +271,9 @@ data.th_slider = th_slider;
 data.th_label = th_label;
 data.den_slider = den_slider;
 data.den_label = den_label;
+data.hl_slider = hl_slider;
+data.hl_label = hl_label;
+data.highlightK = round(hl_slider.Value);
 data.cb_show_cloud = cb_show_cloud;
 data.cb_show_focus = cb_show_focus;
 data.cb_show_ell = cb_show_ell;
@@ -275,6 +293,7 @@ updateScene(fig);
 % UI callbacks (nach guidata, damit updateScene Zugriff hat)
 th_slider.Callback = @(src,~) onThresholdChanged(src);
 den_slider.Callback = @(src,~) onDensityChanged(src);
+hl_slider.Callback = @(src,~) onHighlightChanged(src);
 cb_show_cloud.Callback = @(src,~) onToggleChanged(src);
 cb_show_focus.Callback = @(src,~) onToggleChanged(src);
 cb_show_ell.Callback = @(src,~) onToggleChanged(src);
@@ -288,7 +307,7 @@ function onSliderChanged(src, jointIdx)
     figLocal = ancestor(src, 'figure');
     dataLocal = guidata(figLocal);
     q = src.Value;
-    dataLocal.edits(jointIdx).String = sprintf('q%d = %.1f°', jointIdx, rad2deg(q));
+    dataLocal.edits(jointIdx).String = sprintf('%.1f', rad2deg(q));
     guidata(figLocal, dataLocal);
     updateScene(figLocal);
 end
@@ -297,25 +316,17 @@ function onEditChanged(src, jointIdx)
     figLocal = ancestor(src, 'figure');
     dataLocal = guidata(figLocal);
 
-    % Erwartet Format "qk = xx.x°" oder einfach "xx.x"
-    txt = src.String;
-    txt = strrep(txt, '°', '');
-    tokens = regexp(txt, '([-+]?\d+(?:\.\d+)?)', 'match');
-    if isempty(tokens)
-        src.String = sprintf('q%d = %.1f°', jointIdx, rad2deg(dataLocal.sliders(jointIdx).Value));
-        return;
-    end
-
-    valDeg = str2double(tokens{end});
+    % Erwartet eine Zahl in Grad
+    valDeg = str2double(src.String);
     if isnan(valDeg)
-        src.String = sprintf('q%d = %.1f°', jointIdx, rad2deg(dataLocal.sliders(jointIdx).Value));
+        src.String = sprintf('%.1f', rad2deg(dataLocal.sliders(jointIdx).Value));
         return;
     end
 
     q = deg2rad(valDeg);
     q = min(max(q, dataLocal.q_min(jointIdx)), dataLocal.q_max(jointIdx));
     dataLocal.sliders(jointIdx).Value = q;
-    src.String = sprintf('q%d = %.1f°', jointIdx, rad2deg(q));
+    src.String = sprintf('%.1f', rad2deg(q));
 
     guidata(figLocal, dataLocal);
     updateScene(figLocal);
@@ -326,6 +337,8 @@ function onThresholdChanged(src)
     dataLocal = guidata(figLocal);
     expVal = src.Value;
     dataLocal.sing_threshold = 10.^expVal;
+    % Threshold ändert die Menge singulärer Punkte -> neue Permutation
+    dataLocal.cloud_perm = [];
     guidata(figLocal, dataLocal);
     updateCloud(figLocal);
     updateScene(figLocal);
@@ -340,10 +353,18 @@ function onDensityChanged(src)
     updateScene(figLocal);
 end
 
+function onHighlightChanged(src)
+    figLocal = ancestor(src, 'figure');
+    dataLocal = guidata(figLocal);
+    dataLocal.highlightK = round(src.Value);
+    guidata(figLocal, dataLocal);
+    updateScene(figLocal);
+end
+
 function onToggleChanged(src)
     figLocal = ancestor(src, 'figure');
     dataLocal = guidata(figLocal);
-    % Sichtbarkeit
+    % Sichtbarkeit (wichtig: Fokus ist NICHT die Wolke)
     dataLocal.sc_sing.Visible = onoff(dataLocal.cb_show_cloud.Value);
     dataLocal.sc_focus.Visible = onoff(dataLocal.cb_show_focus.Value);
     dataLocal.ell.Visible = onoff(dataLocal.cb_show_ell.Value);
@@ -358,7 +379,7 @@ function onHome(src)
     qhome = deg2rad([0, -30, 60, 0, 30, 0]);
     for ii = 1:6
         dataLocal.sliders(ii).Value = qhome(ii);
-        dataLocal.edits(ii).String = sprintf('q%d = %.1f°', ii, rad2deg(qhome(ii)));
+        dataLocal.edits(ii).String = sprintf('%.1f', rad2deg(qhome(ii)));
     end
     dataLocal.trail_pts = zeros(0,3);
     guidata(figLocal, dataLocal);
@@ -371,7 +392,7 @@ function onRandom(src)
     q = dataLocal.q_min + rand(1,6).*(dataLocal.q_max - dataLocal.q_min);
     for ii = 1:6
         dataLocal.sliders(ii).Value = q(ii);
-        dataLocal.edits(ii).String = sprintf('q%d = %.1f°', ii, rad2deg(q(ii)));
+        dataLocal.edits(ii).String = sprintf('%.1f', rad2deg(q(ii)));
     end
     guidata(figLocal, dataLocal);
     updateScene(figLocal);
@@ -387,7 +408,27 @@ function updateCloud(figLocal)
     dataLocal.Q_sing = dataLocal.Q_all(isSing,:);
     dataLocal.score_sing = dataLocal.score_all(isSing);
 
-    [P_show, score_show] = subsample_points(dataLocal.P_sing, dataLocal.score_sing, frac);
+    % Stable subsampling: gleiche Reihenfolge beibehalten, wenn nur die Dichte
+    % geändert wird (sonst wirkt der Slider "tot" / flackernd).
+    n = size(dataLocal.P_sing, 1);
+    if isempty(dataLocal.cloud_perm) || numel(dataLocal.cloud_perm) ~= n
+        if n > 0
+            dataLocal.cloud_perm = randperm(n);
+        else
+            dataLocal.cloud_perm = [];
+        end
+    end
+    k = 0;
+    if n > 0
+        k = max(1, round(frac * n));
+        idx = dataLocal.cloud_perm(1:k);
+        P_show = dataLocal.P_sing(idx, :);
+        score_show = dataLocal.score_sing(idx, :);
+    else
+        P_show = zeros(0,3);
+        score_show = zeros(0,1);
+    end
+
     dataLocal.sc_sing.XData = P_show(:,1);
     dataLocal.sc_sing.YData = P_show(:,2);
     dataLocal.sc_sing.ZData = P_show(:,3);
@@ -396,6 +437,10 @@ function updateCloud(figLocal)
     % Labels aktualisieren
     dataLocal.th_label.String = sprintf('threshold = 10^{%.2f} = %.2e  |  points: %d', log10(th), th, size(dataLocal.P_sing,1));
     dataLocal.den_label.String = sprintf('display = %.0f%%  |  shown: %d', 100*frac, size(P_show,1));
+    if ~isfield(dataLocal, 'highlightK') || isempty(dataLocal.highlightK)
+        dataLocal.highlightK = round(dataLocal.hl_slider.Value);
+    end
+    dataLocal.hl_label.String = sprintf('highlight K = %d', dataLocal.highlightK);
 
     guidata(figLocal, dataLocal);
 end
@@ -442,8 +487,8 @@ function updateScene(figLocal)
     dataLocal.robot_ee.ZData = ee(3);
 
     % "Relevanz" im Gelenkraum: welche singulären Samples sind nahe am aktuellen q?
-    % Wir nehmen eine einfache Distanz mit Winkelnormierung.
-    if isempty(dataLocal.Q_sing)
+    % Wichtig: Nur die NÄCHSTEN K hervorheben (sonst wirkt es wie "alles").
+    if dataLocal.cb_show_focus.Value ~= 1 || isempty(dataLocal.Q_sing)
         dist = [];
         idx = [];
         Pf = zeros(0,3);
@@ -452,10 +497,18 @@ function updateScene(figLocal)
         dq = wrapToPi_local(dataLocal.Q_sing - q);
         dist = sqrt(sum(dq.^2, 2));
 
-        % Fokus: top-K nächste Punkte
-        K = min(350, size(dataLocal.Q_sing, 1));
-        [~, idx] = mink(dist, K);
-        Pf = dataLocal.P_sing(idx, :);
+        if ~isfield(dataLocal, 'highlightK') || isempty(dataLocal.highlightK)
+            dataLocal.highlightK = round(dataLocal.hl_slider.Value);
+        end
+
+        K = min(max(0, dataLocal.highlightK), size(dataLocal.Q_sing, 1));
+        if K == 0
+            idx = [];
+            Pf = zeros(0,3);
+        else
+            [~, idx] = mink(dist, K);
+            Pf = dataLocal.P_sing(idx, :);
+        end
     end
 
     % Größe abhängig von Distanz
@@ -463,9 +516,9 @@ function updateScene(figLocal)
         sz = [];
     else
         dsel = dist(idx);
-        d0 = prctile(dsel, 60);
-        w = exp(-(dsel./max(d0, 1e-6)).^2);
-        sz = 20 + 120*w;
+        d0 = max(prctile(dsel, 60), 1e-6);
+        w = exp(-(dsel./d0).^2);
+        sz = 30 + 140*w;
     end
 
     dataLocal.sc_focus.XData = Pf(:,1);
@@ -486,6 +539,11 @@ function updateScene(figLocal)
         dataLocal.ee_trail.XData = dataLocal.trail_pts(:,1);
         dataLocal.ee_trail.YData = dataLocal.trail_pts(:,2);
         dataLocal.ee_trail.ZData = dataLocal.trail_pts(:,3);
+    else
+        % wenn aus, dann nicht weiter "füllen"
+        dataLocal.ee_trail.XData = nan;
+        dataLocal.ee_trail.YData = nan;
+        dataLocal.ee_trail.ZData = nan;
     end
 
     % Diagnostics
@@ -501,12 +559,16 @@ function updateScene(figLocal)
         dataLocal.ell.XData = Xe;
         dataLocal.ell.YData = Ye;
         dataLocal.ell.ZData = Ze;
+    else
+        dataLocal.ell.XData = nan(2);
+        dataLocal.ell.YData = nan(2);
+        dataLocal.ell.ZData = nan(2);
     end
 
     sigmaChar = char(963); % 'σ'
     dataLocal.infoText.String = sprintf(['Aktuelle Pose: p=[%.3f %.3f %.3f] m\n', ...
         'Jacobi:  %s_min=%.2e, cond(J)=%.2e\n', ...
-        'Singularitätswolke: %d Punkte (Fokus: %d)'], ...
+        'Singularitätswolke: %d Punkte (Highlight: %d)'], ...
         ee(1), ee(2), ee(3), sigmaChar, sigmaMin, condJ, size(dataLocal.P_sing,1), K);
 
     guidata(figLocal, dataLocal);
