@@ -162,12 +162,35 @@ camlight(ax, 'headlight');
 lighting(ax, 'gouraud');
 
 % UI Panels: getrennt für bessere Lesbarkeit (Students)
+% Neues Ziel: Studierende sollen die Geometrie (aus URDF extrahiert) hier manuell eingeben.
+panelGeom = uipanel('Parent', fig, 'Title', 'Robot Geometry (DH + Limits)', 'FontWeight', 'bold', ...
+    'Units', 'normalized', 'Position', [0.70 0.78 0.28 0.20]);
 panelCtrl = uipanel('Parent', fig, 'Title', 'Controls', 'FontWeight', 'bold', ...
-    'Units', 'normalized', 'Position', [0.70 0.60 0.28 0.36]);
+    'Units', 'normalized', 'Position', [0.70 0.52 0.28 0.25]);
 panelJoints = uipanel('Parent', fig, 'Title', 'Joint Angles (deg)', 'FontWeight', 'bold', ...
-    'Units', 'normalized', 'Position', [0.70 0.30 0.28 0.28]);
+    'Units', 'normalized', 'Position', [0.70 0.24 0.28 0.26]);
 panelDiag = uipanel('Parent', fig, 'Title', 'Diagnostics', 'FontWeight', 'bold', ...
-    'Units', 'normalized', 'Position', [0.70 0.08 0.28 0.20]);
+    'Units', 'normalized', 'Position', [0.70 0.02 0.28 0.20]);
+
+% Geometry table (students paste values they extracted from their URDF)
+uicontrol('Parent', panelGeom, 'Style', 'text', 'Units', 'normalized', ...
+    'Position', [0.05 0.86 0.90 0.12], 'String', 'Enter DH (a, alpha, d, theta0) and joint limits (deg):', ...
+    'HorizontalAlignment', 'left');
+
+geomData = [a(:), rad2deg(alpha(:)), d(:), rad2deg(theta_offset(:)), rad2deg(q_min(:)), rad2deg(q_max(:))];
+
+geom_table = uitable('Parent', panelGeom, 'Units', 'normalized', ...
+    'Position', [0.05 0.18 0.90 0.66], ...
+    'Data', geomData, ...
+    'ColumnName', {'a [m]', 'alpha [deg]', 'd [m]', 'theta0 [deg]', 'qmin [deg]', 'qmax [deg]'}, ...
+    'ColumnEditable', true(1,6), ...
+    'RowName', arrayfun(@(i) sprintf('j%d', i), 1:6, 'UniformOutput', false));
+
+btn_apply_geom = uicontrol('Parent', panelGeom, 'Style', 'pushbutton', 'Units', 'normalized', ...
+    'Position', [0.05 0.02 0.42 0.14], 'String', 'Apply Geometry');
+
+btn_reset_geom = uicontrol('Parent', panelGeom, 'Style', 'pushbutton', 'Units', 'normalized', ...
+    'Position', [0.53 0.02 0.42 0.14], 'String', 'Reset Demo');
 
 % Zusätzliche Controls (Threshold, Dichte, Toggles)
 uicontrol('Parent', panelCtrl, 'Style', 'text', 'Units', 'normalized', ...
@@ -211,7 +234,7 @@ hl_label = uicontrol('Parent', panelCtrl, 'Style', 'text', 'Units', 'normalized'
 uicontrol('Parent', panelCtrl, 'Style', 'text', 'Units', 'normalized', ...
     'Position', [0.05 0.08 0.20 0.05], 'String', 'Preset:', 'HorizontalAlignment', 'left');
 preset_menu = uicontrol('Parent', panelCtrl, 'Style', 'popupmenu', 'Units', 'normalized', ...
-    'Position', [0.25 0.08 0.70 0.06], 'String', {'Home', 'Wrist singular (q5=0)', 'Elbow stretched (q2=0,q3=0)'}, ...
+    'Position', [0.25 0.08 0.70 0.06], 'String', {'Home'}, ...
     'Value', 1);
 
 btn_home = uicontrol('Parent', panelCtrl, 'Style', 'pushbutton', 'Units', 'normalized', ...
@@ -236,6 +259,8 @@ diagAx.YLim = [1e-6 1e2];
 data = struct();
 data.a = a; data.alpha = alpha; data.d = d; data.theta_offset = theta_offset;
 data.q_min = q_min; data.q_max = q_max;
+data.q0 = q0;
+data.N_samples = N_samples;
 data.ax = ax;
 data.sc_sing = sc_sing;
 data.sc_focus = sc_focus;
@@ -245,6 +270,12 @@ data.robot_ee = robot_ee;
 data.ee_trail = ee_trail;
 data.ell = ell;
 data.ell_axes = ell_axes;
+
+% Geometry UI handles
+data.panelGeom = panelGeom;
+data.geom_table = geom_table;
+data.btn_apply_geom = btn_apply_geom;
+data.btn_reset_geom = btn_reset_geom;
 
 data.P_all = P_all;
 data.Q_all = Q_all;
@@ -305,6 +336,7 @@ data.hl_slider = hl_slider;
 data.hl_label = hl_label;
 data.highlightK = round(hl_slider.Value);
 data.preset_menu = preset_menu;
+data.presets = build_presets(data.q_min, data.q_max, data.q0);
 data.diagAx = diagAx;
 data.barSing = barSing;
 data.cb_show_cloud = cb_show_cloud;
@@ -319,6 +351,11 @@ data.trail_maxlen = 250;
 data.trail_pts = zeros(0,3);
 
 guidata(fig, data);
+
+% Initialize preset menu entries
+data0 = guidata(fig);
+set(data0.preset_menu, 'String', {data0.presets.name}, 'Value', 1);
+guidata(fig, data0);
 
 % First draw
 updateScene(fig);
@@ -335,6 +372,9 @@ cb_show_trail.Callback = @(src,~) onToggleChanged(src);
 
 btn_home.Callback = @(src,~) onHome(src);
 btn_rand.Callback = @(src,~) onRandom(src);
+
+btn_apply_geom.Callback = @(src,~) onApplyGeometry(src);
+btn_reset_geom.Callback = @(src,~) onResetGeometry(src);
 
 %% Callbacks
 function onSliderChanged(src, jointIdx)
@@ -417,7 +457,7 @@ end
 function onHome(src)
     figLocal = ancestor(src, 'figure');
     dataLocal = guidata(figLocal);
-    qhome = deg2rad([0, -30, 60, 0, 30, 0]);
+    qhome = dataLocal.q0;
     for ii = 1:6
         dataLocal.sliders(ii).Value = qhome(ii);
         dataLocal.edits(ii).String = sprintf('%.1f', rad2deg(qhome(ii)));
@@ -444,15 +484,10 @@ function onPresetChanged(src)
     dataLocal = guidata(figLocal);
     v = src.Value;
 
-    switch v
-        case 1 % Home
-            q = deg2rad([0, -30, 60, 0, 30, 0]);
-        case 2 % Wrist singularity (klassisch: q5 -> 0)
-            q = deg2rad([0, -30, 60, 0, 0, 0]);
-        case 3 % Elbow stretched (vereinfacht: q2,q3 -> 0)
-            q = deg2rad([0, 0, 0, 0, 30, 0]);
-        otherwise
-            q = deg2rad([0, -30, 60, 0, 30, 0]);
+    if isfield(dataLocal, 'presets') && ~isempty(dataLocal.presets) && v >= 1 && v <= numel(dataLocal.presets)
+        q = dataLocal.presets(v).q;
+    else
+        q = dataLocal.q0;
     end
 
     for ii = 1:6
@@ -463,6 +498,104 @@ function onPresetChanged(src)
 
     guidata(figLocal, dataLocal);
     updateScene(figLocal);
+end
+
+function onApplyGeometry(src)
+    figLocal = ancestor(src, 'figure');
+    dataLocal = guidata(figLocal);
+
+    tbl = dataLocal.geom_table.Data;
+    if isempty(tbl) || size(tbl,2) ~= 6 || size(tbl,1) ~= 6
+        errordlg('Geometry table must be 6x6 (a, alpha, d, theta0, qmin, qmax).', 'Invalid geometry');
+        return;
+    end
+    if any(~isfinite(tbl(:)))
+        errordlg('Geometry table contains non-numeric values.', 'Invalid geometry');
+        return;
+    end
+
+    a_new = tbl(:,1).';
+    alpha_new = deg2rad(tbl(:,2).');
+    d_new = tbl(:,3).';
+    theta0_new = deg2rad(tbl(:,4).');
+    qmin_new = deg2rad(tbl(:,5).');
+    qmax_new = deg2rad(tbl(:,6).');
+
+    if any(qmax_new <= qmin_new)
+        errordlg('Each joint must satisfy qmax > qmin.', 'Invalid limits');
+        return;
+    end
+
+    dataLocal.a = a_new;
+    dataLocal.alpha = alpha_new;
+    dataLocal.d = d_new;
+    dataLocal.theta_offset = theta0_new;
+    dataLocal.q_min = qmin_new;
+    dataLocal.q_max = qmax_new;
+
+    % Update "home" as mid-range (safe default) unless existing home is still valid
+    q0_new = 0.5*(qmin_new + qmax_new);
+    if isfield(dataLocal, 'q0') && numel(dataLocal.q0) == 6
+        q0_try = min(max(dataLocal.q0, qmin_new), qmax_new);
+        q0_new = q0_try;
+    end
+    dataLocal.q0 = q0_new;
+
+    % Update slider ranges + clamp values
+    for ii = 1:6
+        dataLocal.sliders(ii).Min = dataLocal.q_min(ii);
+        dataLocal.sliders(ii).Max = dataLocal.q_max(ii);
+        qv = min(max(dataLocal.sliders(ii).Value, dataLocal.q_min(ii)), dataLocal.q_max(ii));
+        dataLocal.sliders(ii).Value = qv;
+        dataLocal.edits(ii).String = sprintf('%.1f', rad2deg(qv));
+    end
+
+    % Rebuild presets and menu
+    dataLocal.presets = build_presets(dataLocal.q_min, dataLocal.q_max, dataLocal.q0);
+    set(dataLocal.preset_menu, 'String', {dataLocal.presets.name}, 'Value', 1);
+
+    % Recompute singularity cloud for new geometry
+    guidata(figLocal, dataLocal);
+    recomputeCloud(figLocal);
+end
+
+function onResetGeometry(src)
+    figLocal = ancestor(src, 'figure');
+    dataLocal = guidata(figLocal);
+
+    % restore demo defaults (same as top of script)
+    a_new =     [ 0.00,  0.35,  0.25, 0.00, 0.00, 0.00];
+    alpha_new = [ pi/2, 0.00,  0.00,  pi/2, -pi/2, 0.00];
+    d_new =     [ 0.40, 0.00,  0.00, 0.30, 0.00, 0.10];
+    theta0_new = zeros(1,6);
+    qmin_new = deg2rad([-170, -120, -170, -190, -120, -360]);
+    qmax_new = deg2rad([ 170,  120,  170,  190,  120,  360]);
+    q0_new = deg2rad([0, -30, 60, 0, 30, 0]);
+
+    dataLocal.a = a_new;
+    dataLocal.alpha = alpha_new;
+    dataLocal.d = d_new;
+    dataLocal.theta_offset = theta0_new;
+    dataLocal.q_min = qmin_new;
+    dataLocal.q_max = qmax_new;
+    dataLocal.q0 = q0_new;
+
+    % Update table
+    dataLocal.geom_table.Data = [a_new(:), rad2deg(alpha_new(:)), d_new(:), rad2deg(theta0_new(:)), rad2deg(qmin_new(:)), rad2deg(qmax_new(:))];
+
+    % Update slider ranges + set to home
+    for ii = 1:6
+        dataLocal.sliders(ii).Min = dataLocal.q_min(ii);
+        dataLocal.sliders(ii).Max = dataLocal.q_max(ii);
+        dataLocal.sliders(ii).Value = dataLocal.q0(ii);
+        dataLocal.edits(ii).String = sprintf('%.1f', rad2deg(dataLocal.q0(ii)));
+    end
+
+    dataLocal.presets = build_presets(dataLocal.q_min, dataLocal.q_max, dataLocal.q0);
+    set(dataLocal.preset_menu, 'String', {dataLocal.presets.name}, 'Value', 1);
+
+    guidata(figLocal, dataLocal);
+    recomputeCloud(figLocal);
 end
 
 function updateCloud(figLocal)
@@ -510,6 +643,108 @@ function updateCloud(figLocal)
     dataLocal.hl_label.String = sprintf('highlight K = %d', dataLocal.highlightK);
 
     guidata(figLocal, dataLocal);
+end
+
+function recomputeCloud(figLocal)
+    dataLocal = guidata(figLocal);
+
+    wb = waitbar(0, 'Recomputing singularity cloud (this may take a moment)...');
+    cleanup = onCleanup(@() safe_close_waitbar(wb));
+
+    N = dataLocal.N_samples;
+    Q = zeros(N, 6);
+    P = zeros(N, 3);
+    SigmaMin = zeros(N, 1);
+
+    tStart = tic;
+    for k = 1:N
+        q = dataLocal.q_min + rand(1,6).*(dataLocal.q_max - dataLocal.q_min);
+        Q(k,:) = q;
+
+        [T_all, o_all, z_all] = fk_chain_dh(dataLocal.a, dataLocal.alpha, dataLocal.d, q + dataLocal.theta_offset);
+        P(k,:) = T_all{end}(1:3, 4).';
+
+        J = jacobian_geometric_from_fk(o_all, z_all);
+        s = svd(J);
+        SigmaMin(k) = min(s);
+
+        if mod(k, 250) == 0
+            waitbar(k/N, wb);
+        end
+    end
+
+    dataLocal.P_all = P;
+    dataLocal.Q_all = Q;
+    dataLocal.SigmaMin_all = SigmaMin;
+    dataLocal.score_all = -log10(max(SigmaMin, 1e-12));
+
+    elapsed = toc(tStart);
+    fprintf('Recompute fertig in %.1fs\n', elapsed);
+
+    % Reset subsampling cache + update filtered view
+    dataLocal.cloud_perm = [];
+    guidata(figLocal, dataLocal);
+    updateCloud(figLocal);
+    updateScene(figLocal);
+end
+
+function safe_close_waitbar(wb)
+    if ~isempty(wb) && isgraphics(wb)
+        close(wb);
+    end
+end
+
+function presets = build_presets(q_min, q_max, q0)
+%BUILD_PRESETS Create a richer preset list (safe + teaching-focused).
+presets = struct('name', {}, 'q', {});
+
+qmin = q_min(:).';
+qmax = q_max(:).';
+
+% Helpers
+clip = @(q) min(max(q, qmin), qmax);
+qmid = 0.5*(qmin + qmax);
+qlo = qmin + 0.05*(qmax - qmin);
+qhi = qmax - 0.05*(qmax - qmin);
+
+presets(end+1) = struct('name', 'Home', 'q', clip(q0));
+presets(end+1) = struct('name', 'All zeros', 'q', clip(zeros(1,6)));
+presets(end+1) = struct('name', 'Mid-range', 'q', clip(qmid));
+
+% Classic teaching poses (still useful even if geometry differs)
+q_wrist = clip(q0);
+q_wrist(5) = 0;
+presets(end+1) = struct('name', 'Wrist singular (q5=0)', 'q', q_wrist);
+
+q_elbow = clip(q0);
+q_elbow(2) = 0;
+q_elbow(3) = 0;
+presets(end+1) = struct('name', 'Elbow stretched (q2=0,q3=0)', 'q', q_elbow);
+
+q_fold = clip(q0);
+q_fold(2) = -pi/2;
+q_fold(3) = pi/2;
+presets(end+1) = struct('name', 'Folded elbow (q2=-90,q3=90)', 'q', q_fold);
+
+q_sh = clip(q0);
+q_sh(1) = pi/2;
+presets(end+1) = struct('name', 'Shoulder twist (q1=90)', 'q', q_sh);
+
+% Near limits (students often want to see what happens)
+presets(end+1) = struct('name', 'Near lower limits', 'q', clip(qlo));
+presets(end+1) = struct('name', 'Near upper limits', 'q', clip(qhi));
+
+% Alternating pose
+alt = qmid;
+for i = 1:6
+    r = 0.35*(qmax(i) - qmin(i));
+    if mod(i,2)==0
+        alt(i) = qmid(i) + r;
+    else
+        alt(i) = qmid(i) - r;
+    end
+end
+presets(end+1) = struct('name', 'Alternating pose', 'q', clip(alt));
 end
 
 %% Scene update
