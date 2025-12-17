@@ -151,56 +151,86 @@ ee_trail = plot3(ax, nan, nan, nan, '-', 'LineWidth', 1.5, 'Color', [0.85 0.1 0.
 % surf benötigt Matrizen für X/Y/Z. Wir initialisieren daher mit 2x2 NaNs.
 ell = surf(ax, nan(2), nan(2), nan(2), 'FaceAlpha', 0.18, 'EdgeAlpha', 0.05, 'FaceColor', [0.2 0.2 0.2]);
 
+% Educational overlay: Hauptachsen des Geschwindigkeit-Ellipsoids
+ell_axes = gobjects(1,3);
+ell_axes(1) = plot3(ax, nan, nan, nan, '-', 'LineWidth', 2, 'Color', [0.85 0.25 0.25]);
+ell_axes(2) = plot3(ax, nan, nan, nan, '-', 'LineWidth', 2, 'Color', [0.25 0.75 0.25]);
+ell_axes(3) = plot3(ax, nan, nan, nan, '-', 'LineWidth', 2, 'Color', [0.25 0.45 0.85]);
+
 % "Glam": Licht + Material (wirkt in MATLAB sehr gut)
 camlight(ax, 'headlight');
 lighting(ax, 'gouraud');
 
-% UI Panel
-panel = uipanel('Parent', fig, 'Title', 'Joint Controls (deg)', 'FontWeight', 'bold', ...
-    'Units', 'normalized', 'Position', [0.70 0.08 0.28 0.88]);
+% UI Panels: getrennt für bessere Lesbarkeit (Students)
+panelCtrl = uipanel('Parent', fig, 'Title', 'Controls', 'FontWeight', 'bold', ...
+    'Units', 'normalized', 'Position', [0.70 0.60 0.28 0.36]);
+panelJoints = uipanel('Parent', fig, 'Title', 'Joint Angles (deg)', 'FontWeight', 'bold', ...
+    'Units', 'normalized', 'Position', [0.70 0.30 0.28 0.28]);
+panelDiag = uipanel('Parent', fig, 'Title', 'Diagnostics', 'FontWeight', 'bold', ...
+    'Units', 'normalized', 'Position', [0.70 0.08 0.28 0.20]);
 
 % Zusätzliche Controls (Threshold, Dichte, Toggles)
-uicontrol('Parent', panel, 'Style', 'text', 'Units', 'normalized', ...
-    'Position', [0.05 0.94 0.90 0.04], 'String', 'Singularity Threshold (log10):', ...
+uicontrol('Parent', panelCtrl, 'Style', 'text', 'Units', 'normalized', ...
+    'Position', [0.05 0.92 0.90 0.06], 'String', 'Singularity Threshold (log10):', ...
     'HorizontalAlignment', 'left');
 
 % Slider in log10-Skala: threshold = 10^(exp)
 th_exp_init = log10(sing_threshold);
-th_slider = uicontrol('Parent', panel, 'Style', 'slider', 'Units', 'normalized', ...
-    'Position', [0.05 0.90 0.90 0.04], 'Min', -6, 'Max', -1, 'Value', th_exp_init);
-th_label = uicontrol('Parent', panel, 'Style', 'text', 'Units', 'normalized', ...
-    'Position', [0.05 0.86 0.90 0.04], 'String', '', 'HorizontalAlignment', 'left');
+th_slider = uicontrol('Parent', panelCtrl, 'Style', 'slider', 'Units', 'normalized', ...
+    'Position', [0.05 0.86 0.90 0.06], 'Min', -6, 'Max', -1, 'Value', th_exp_init);
+th_label = uicontrol('Parent', panelCtrl, 'Style', 'text', 'Units', 'normalized', ...
+    'Position', [0.05 0.80 0.90 0.05], 'String', '', 'HorizontalAlignment', 'left');
 
-uicontrol('Parent', panel, 'Style', 'text', 'Units', 'normalized', ...
-    'Position', [0.05 0.82 0.90 0.04], 'String', 'Display Density (% of points):', ...
+uicontrol('Parent', panelCtrl, 'Style', 'text', 'Units', 'normalized', ...
+    'Position', [0.05 0.73 0.90 0.05], 'String', 'Display Density (% of points):', ...
     'HorizontalAlignment', 'left');
-den_slider = uicontrol('Parent', panel, 'Style', 'slider', 'Units', 'normalized', ...
-    'Position', [0.05 0.78 0.90 0.04], 'Min', 5, 'Max', 100, 'Value', 100*display_fraction);
-den_label = uicontrol('Parent', panel, 'Style', 'text', 'Units', 'normalized', ...
-    'Position', [0.05 0.74 0.90 0.04], 'String', '', 'HorizontalAlignment', 'left');
+den_slider = uicontrol('Parent', panelCtrl, 'Style', 'slider', 'Units', 'normalized', ...
+    'Position', [0.05 0.67 0.90 0.06], 'Min', 5, 'Max', 100, 'Value', 100*display_fraction);
+den_label = uicontrol('Parent', panelCtrl, 'Style', 'text', 'Units', 'normalized', ...
+    'Position', [0.05 0.61 0.90 0.05], 'String', '', 'HorizontalAlignment', 'left');
 
-cb_show_cloud = uicontrol('Parent', panel, 'Style', 'checkbox', 'Units', 'normalized', ...
-    'Position', [0.05 0.69 0.90 0.04], 'Value', 1, 'String', 'Show singularity cloud');
-cb_show_focus = uicontrol('Parent', panel, 'Style', 'checkbox', 'Units', 'normalized', ...
-    'Position', [0.05 0.65 0.90 0.04], 'Value', 1, 'String', 'Highlight near-singular points');
-cb_show_ell = uicontrol('Parent', panel, 'Style', 'checkbox', 'Units', 'normalized', ...
-    'Position', [0.05 0.61 0.90 0.04], 'Value', 1, 'String', 'Show velocity ellipsoid');
-cb_show_trail = uicontrol('Parent', panel, 'Style', 'checkbox', 'Units', 'normalized', ...
-    'Position', [0.05 0.57 0.90 0.04], 'Value', 1, 'String', 'Show EE trail');
+cb_show_cloud = uicontrol('Parent', panelCtrl, 'Style', 'checkbox', 'Units', 'normalized', ...
+    'Position', [0.05 0.54 0.90 0.06], 'Value', 1, 'String', 'Show singularity cloud');
+cb_show_focus = uicontrol('Parent', panelCtrl, 'Style', 'checkbox', 'Units', 'normalized', ...
+    'Position', [0.05 0.47 0.90 0.06], 'Value', 1, 'String', 'Highlight near-singular points');
+cb_show_ell = uicontrol('Parent', panelCtrl, 'Style', 'checkbox', 'Units', 'normalized', ...
+    'Position', [0.05 0.40 0.90 0.06], 'Value', 1, 'String', 'Show velocity ellipsoid');
+cb_show_trail = uicontrol('Parent', panelCtrl, 'Style', 'checkbox', 'Units', 'normalized', ...
+    'Position', [0.05 0.33 0.90 0.06], 'Value', 1, 'String', 'Show EE trail');
 
 % Neuer UX-Control: Wie viele Punkte sollen als "nahe" hervorgehoben werden?
-uicontrol('Parent', panel, 'Style', 'text', 'Units', 'normalized', ...
-    'Position', [0.05 0.48 0.90 0.04], 'String', 'Highlight Count (nearest in joint-space):', ...
+uicontrol('Parent', panelCtrl, 'Style', 'text', 'Units', 'normalized', ...
+    'Position', [0.05 0.25 0.90 0.06], 'String', 'Highlight Count (nearest in joint-space):', ...
     'HorizontalAlignment', 'left');
-hl_slider = uicontrol('Parent', panel, 'Style', 'slider', 'Units', 'normalized', ...
-    'Position', [0.05 0.44 0.90 0.04], 'Min', 0, 'Max', 500, 'Value', 120);
-hl_label = uicontrol('Parent', panel, 'Style', 'text', 'Units', 'normalized', ...
-    'Position', [0.05 0.40 0.90 0.04], 'String', '', 'HorizontalAlignment', 'left');
+hl_slider = uicontrol('Parent', panelCtrl, 'Style', 'slider', 'Units', 'normalized', ...
+    'Position', [0.05 0.19 0.90 0.06], 'Min', 0, 'Max', 500, 'Value', 120);
+hl_label = uicontrol('Parent', panelCtrl, 'Style', 'text', 'Units', 'normalized', ...
+    'Position', [0.05 0.14 0.90 0.05], 'String', '', 'HorizontalAlignment', 'left');
 
-btn_home = uicontrol('Parent', panel, 'Style', 'pushbutton', 'Units', 'normalized', ...
-    'Position', [0.05 0.33 0.43 0.05], 'String', 'Home');
-btn_rand = uicontrol('Parent', panel, 'Style', 'pushbutton', 'Units', 'normalized', ...
-    'Position', [0.52 0.33 0.43 0.05], 'String', 'Random');
+% Presets: typische Situationen für Lehre
+uicontrol('Parent', panelCtrl, 'Style', 'text', 'Units', 'normalized', ...
+    'Position', [0.05 0.08 0.20 0.05], 'String', 'Preset:', 'HorizontalAlignment', 'left');
+preset_menu = uicontrol('Parent', panelCtrl, 'Style', 'popupmenu', 'Units', 'normalized', ...
+    'Position', [0.25 0.08 0.70 0.06], 'String', {'Home', 'Wrist singular (q5=0)', 'Elbow stretched (q2=0,q3=0)'}, ...
+    'Value', 1);
+
+btn_home = uicontrol('Parent', panelCtrl, 'Style', 'pushbutton', 'Units', 'normalized', ...
+    'Position', [0.05 0.00 0.43 0.07], 'String', 'Home');
+btn_rand = uicontrol('Parent', panelCtrl, 'Style', 'pushbutton', 'Units', 'normalized', ...
+    'Position', [0.52 0.00 0.43 0.07], 'String', 'Random');
+
+% Diagnostics plot: Singularwerte von J
+diagAx = axes('Parent', panelDiag, 'Units', 'normalized', 'Position', [0.08 0.52 0.88 0.44]);
+grid(diagAx, 'on');
+title(diagAx, 'Singular values of J');
+xlabel(diagAx, 'i');
+ylabel(diagAx, '\sigma');
+set(diagAx, 'YScale', 'log');
+barSing = bar(diagAx, 1:6, ones(1,6));
+barSing.FaceColor = [0.25 0.25 0.25];
+barSing.EdgeColor = 'none';
+diagAx.XLim = [0.5 6.5];
+diagAx.YLim = [1e-6 1e2];
 
 % Data in guidata
 data = struct();
@@ -214,6 +244,7 @@ data.robot_joints = robot_joints;
 data.robot_ee = robot_ee;
 data.ee_trail = ee_trail;
 data.ell = ell;
+data.ell_axes = ell_axes;
 
 data.P_all = P_all;
 data.Q_all = Q_all;
@@ -238,18 +269,17 @@ labels = gobjects(1,6);
 q_current = q0;
 
 for i = 1:6
-    % Joint-Controls: eine Zeile pro Gelenk (keine Überlappung)
-    % Wichtig: genug Abstand zur Status-Box unten
-    y = 0.295 - (i-1)*0.038;
+    % Joint-Controls: eine Zeile pro Gelenk (in eigenem Panel)
+    y = 0.83 - (i-1)*0.155;
 
-    labels(i) = uicontrol('Parent', panel, 'Style', 'text', 'Units', 'normalized', ...
-        'Position', [0.05 y 0.18 0.04], 'String', sprintf('q%d [deg]', i), 'HorizontalAlignment', 'left');
+    labels(i) = uicontrol('Parent', panelJoints, 'Style', 'text', 'Units', 'normalized', ...
+        'Position', [0.05 y 0.20 0.12], 'String', sprintf('q%d [deg]', i), 'HorizontalAlignment', 'left');
 
-    sliders(i) = uicontrol('Parent', panel, 'Style', 'slider', 'Units', 'normalized', ...
-        'Position', [0.24 y 0.50 0.04], 'Min', q_min(i), 'Max', q_max(i), 'Value', q_current(i));
+    sliders(i) = uicontrol('Parent', panelJoints, 'Style', 'slider', 'Units', 'normalized', ...
+        'Position', [0.26 y 0.52 0.12], 'Min', q_min(i), 'Max', q_max(i), 'Value', q_current(i));
 
-    edits(i) = uicontrol('Parent', panel, 'Style', 'edit', 'Units', 'normalized', ...
-        'Position', [0.76 y 0.19 0.04], 'String', sprintf('%.1f', rad2deg(q_current(i))));
+    edits(i) = uicontrol('Parent', panelJoints, 'Style', 'edit', 'Units', 'normalized', ...
+        'Position', [0.80 y 0.17 0.12], 'String', sprintf('%.1f', rad2deg(q_current(i))));
 
     % Callback: slider -> edit + update
     sliders(i).Callback = @(src,~) onSliderChanged(src, i);
@@ -259,8 +289,8 @@ for i = 1:6
 end
 
 % Info text
-infoText = uicontrol('Parent', panel, 'Style', 'text', 'Units', 'normalized', ...
-    'Position', [0.05 0.005 0.90 0.085], 'String', 'Ziehe Slider oder tippe Grad-Wert.', ...
+infoText = uicontrol('Parent', panelDiag, 'Style', 'text', 'Units', 'normalized', ...
+    'Position', [0.08 0.04 0.88 0.44], 'String', 'Ziehe Slider oder tippe Grad-Wert.', ...
     'HorizontalAlignment', 'left', 'FontSize', 9);
 
 data.sliders = sliders;
@@ -274,6 +304,9 @@ data.den_label = den_label;
 data.hl_slider = hl_slider;
 data.hl_label = hl_label;
 data.highlightK = round(hl_slider.Value);
+data.preset_menu = preset_menu;
+data.diagAx = diagAx;
+data.barSing = barSing;
 data.cb_show_cloud = cb_show_cloud;
 data.cb_show_focus = cb_show_focus;
 data.cb_show_ell = cb_show_ell;
@@ -294,6 +327,7 @@ updateScene(fig);
 th_slider.Callback = @(src,~) onThresholdChanged(src);
 den_slider.Callback = @(src,~) onDensityChanged(src);
 hl_slider.Callback = @(src,~) onHighlightChanged(src);
+preset_menu.Callback = @(src,~) onPresetChanged(src);
 cb_show_cloud.Callback = @(src,~) onToggleChanged(src);
 cb_show_focus.Callback = @(src,~) onToggleChanged(src);
 cb_show_ell.Callback = @(src,~) onToggleChanged(src);
@@ -368,6 +402,13 @@ function onToggleChanged(src)
     dataLocal.sc_sing.Visible = onoff(dataLocal.cb_show_cloud.Value);
     dataLocal.sc_focus.Visible = onoff(dataLocal.cb_show_focus.Value);
     dataLocal.ell.Visible = onoff(dataLocal.cb_show_ell.Value);
+    if isfield(dataLocal, 'ell_axes')
+        for kk = 1:numel(dataLocal.ell_axes)
+            if isgraphics(dataLocal.ell_axes(kk))
+                dataLocal.ell_axes(kk).Visible = onoff(dataLocal.cb_show_ell.Value);
+            end
+        end
+    end
     dataLocal.ee_trail.Visible = onoff(dataLocal.cb_show_trail.Value);
     guidata(figLocal, dataLocal);
     updateScene(figLocal);
@@ -394,6 +435,32 @@ function onRandom(src)
         dataLocal.sliders(ii).Value = q(ii);
         dataLocal.edits(ii).String = sprintf('%.1f', rad2deg(q(ii)));
     end
+    guidata(figLocal, dataLocal);
+    updateScene(figLocal);
+end
+
+function onPresetChanged(src)
+    figLocal = ancestor(src, 'figure');
+    dataLocal = guidata(figLocal);
+    v = src.Value;
+
+    switch v
+        case 1 % Home
+            q = deg2rad([0, -30, 60, 0, 30, 0]);
+        case 2 % Wrist singularity (klassisch: q5 -> 0)
+            q = deg2rad([0, -30, 60, 0, 0, 0]);
+        case 3 % Elbow stretched (vereinfacht: q2,q3 -> 0)
+            q = deg2rad([0, 0, 0, 0, 30, 0]);
+        otherwise
+            q = deg2rad([0, -30, 60, 0, 30, 0]);
+    end
+
+    for ii = 1:6
+        q(ii) = min(max(q(ii), dataLocal.q_min(ii)), dataLocal.q_max(ii));
+        dataLocal.sliders(ii).Value = q(ii);
+        dataLocal.edits(ii).String = sprintf('%.1f', rad2deg(q(ii)));
+    end
+
     guidata(figLocal, dataLocal);
     updateScene(figLocal);
 end
@@ -552,6 +619,22 @@ function updateScene(figLocal)
     sigmaMin = min(s);
     condJ = cond(J);
 
+    % Update singular value plot (log scale)
+    ss = max(s(:).', 1e-12);
+    if isfield(dataLocal, 'barSing') && isgraphics(dataLocal.barSing)
+        dataLocal.barSing.YData = ss;
+        ymin = max(min(ss) * 0.5, 1e-6);
+        ymax = max(max(ss) * 2.0, 1e-3);
+        dataLocal.diagAx.YLim = [ymin ymax];
+    end
+
+    % Teaching aid: separate arm/wrist 3x3 blocks (typical for 6R with wrist)
+    % These are not perfect for every robot, but useful for intuition.
+    Jarm = J(1:3, 1:3);
+    Jwrist = J(4:6, 4:6);
+    sigmaArm = min(svd(Jarm));
+    sigmaWrist = min(svd(Jwrist));
+
     % Velocity ellipsoid (optional): v = Jv qdot, ||qdot||=1
     if dataLocal.cb_show_ell.Value == 1
         Jv = J(1:3, :);
@@ -559,17 +642,63 @@ function updateScene(figLocal)
         dataLocal.ell.XData = Xe;
         dataLocal.ell.YData = Ye;
         dataLocal.ell.ZData = Ze;
+
+        % Principal axes of ellipsoid (teaching aid)
+        [A0, A1, A2, A3] = velocity_ellipsoid_axes(Jv, ee, 0.08);
+        if isfield(dataLocal, 'ell_axes') && numel(dataLocal.ell_axes) >= 3
+            if isgraphics(dataLocal.ell_axes(1))
+                dataLocal.ell_axes(1).XData = [A0(1) A1(1)];
+                dataLocal.ell_axes(1).YData = [A0(2) A1(2)];
+                dataLocal.ell_axes(1).ZData = [A0(3) A1(3)];
+            end
+            if isgraphics(dataLocal.ell_axes(2))
+                dataLocal.ell_axes(2).XData = [A0(1) A2(1)];
+                dataLocal.ell_axes(2).YData = [A0(2) A2(2)];
+                dataLocal.ell_axes(2).ZData = [A0(3) A2(3)];
+            end
+            if isgraphics(dataLocal.ell_axes(3))
+                dataLocal.ell_axes(3).XData = [A0(1) A3(1)];
+                dataLocal.ell_axes(3).YData = [A0(2) A3(2)];
+                dataLocal.ell_axes(3).ZData = [A0(3) A3(3)];
+            end
+        end
     else
         dataLocal.ell.XData = nan(2);
         dataLocal.ell.YData = nan(2);
         dataLocal.ell.ZData = nan(2);
+
+        if isfield(dataLocal, 'ell_axes')
+            for kk = 1:numel(dataLocal.ell_axes)
+                if isgraphics(dataLocal.ell_axes(kk))
+                    dataLocal.ell_axes(kk).XData = nan;
+                    dataLocal.ell_axes(kk).YData = nan;
+                    dataLocal.ell_axes(kk).ZData = nan;
+                end
+            end
+        end
     end
 
     sigmaChar = char(963); % 'σ'
-    dataLocal.infoText.String = sprintf(['Aktuelle Pose: p=[%.3f %.3f %.3f] m\n', ...
-        'Jacobi:  %s_min=%.2e, cond(J)=%.2e\n', ...
-        'Singularitätswolke: %d Punkte (Highlight: %d)'], ...
-        ee(1), ee(2), ee(3), sigmaChar, sigmaMin, condJ, size(dataLocal.P_sing,1), K);
+
+    th = dataLocal.sing_threshold;
+    isArm = sigmaArm < th;
+    isWrist = sigmaWrist < th;
+    if isArm && isWrist
+        cls = 'arm + wrist singularity';
+    elseif isArm
+        cls = 'arm singularity';
+    elseif isWrist
+        cls = 'wrist singularity';
+    else
+        cls = 'regular';
+    end
+
+    dataLocal.infoText.String = sprintf(['Pose: p=[%.3f %.3f %.3f] m\n', ...
+        'J:  %s_min=%.2e, cond(J)=%.2e  (%s)\n', ...
+        'Arm(1:3): %s_min=%.2e   Wrist(4:6): %s_min=%.2e\n', ...
+        'Cloud: %d pts  (Highlight: %d)'], ...
+        ee(1), ee(2), ee(3), sigmaChar, sigmaMin, condJ, cls, ...
+        sigmaChar, sigmaArm, sigmaChar, sigmaWrist, size(dataLocal.P_sing,1), K);
 
     guidata(figLocal, dataLocal);
     drawnow limitrate;
@@ -706,4 +835,23 @@ E = (T * S).';
 X = reshape(E(:,1) + center(1), size(xs));
 Y = reshape(E(:,2) + center(2), size(ys));
 Z = reshape(E(:,3) + center(3), size(zs));
+end
+
+function [c, p1, p2, p3] = velocity_ellipsoid_axes(Jv, center, scale)
+%VELOCITY_ELLIPSOID_AXES Principal axes endpoints for the velocity ellipsoid.
+% Uses A = Jv*Jv' and its SVD. Axis lengths are proportional to singular
+% values of Jv (sqrt of eigenvalues of A), scaled by "scale".
+
+c = center(:).';
+A = Jv * Jv.';
+[U, D] = svd(A);
+sig = sqrt(max(diag(D), 0));
+
+% Guard against pathological cases
+sig = max(sig, 0);
+
+% Endpoints (from center to +axis direction)
+p1 = c + (U(:,1) * sig(1) * scale).';
+p2 = c + (U(:,2) * sig(2) * scale).';
+p3 = c + (U(:,3) * sig(3) * scale).';
 end
