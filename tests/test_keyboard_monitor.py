@@ -11,12 +11,13 @@ class FakeKeyboard:
     def __init__(self) -> None:
         self.callback = None
         self.unhook_calls = 0
+        self.suppress_values: list[bool] = []
 
     def hook(self, callback, *, suppress: bool = False):  # type: ignore[override]
         if self.callback is not None:
-            raise AssertionError("hook called twice")
-        assert suppress is True
+            raise AssertionError("hook called twice without unhook")
         self.callback = callback
+        self.suppress_values.append(suppress)
         return callback
 
     def unhook(self, handle) -> None:  # type: ignore[override]
@@ -33,6 +34,7 @@ def test_keyboard_monitor_emits_signals(qtbot) -> None:
     with qtbot.waitSignal(monitor.listening_changed, timeout=500) as blocker:
         monitor.start()
     assert blocker.args == [True]
+    assert fake_keyboard.suppress_values == [True]
 
     assert fake_keyboard.callback is not None
 
@@ -47,3 +49,25 @@ def test_keyboard_monitor_emits_signals(qtbot) -> None:
     assert blocker.args == [False]
     assert not monitor.is_listening()
     assert fake_keyboard.unhook_calls == 1
+
+
+def test_keyboard_monitor_passthrough_toggle(qtbot) -> None:
+    fake_keyboard = FakeKeyboard()
+    monitor = KeyboardMonitor(keyboard_module=fake_keyboard)
+
+    monitor.start()
+    assert fake_keyboard.suppress_values == [True]
+
+    monitor.set_passthrough_enabled(True)
+    assert fake_keyboard.unhook_calls == 1
+    assert fake_keyboard.suppress_values[-1] is False
+
+    monitor.set_passthrough_enabled(True)
+    assert fake_keyboard.unhook_calls == 1  # no change when already enabled
+
+    monitor.set_passthrough_enabled(False)
+    assert fake_keyboard.unhook_calls == 2
+    assert fake_keyboard.suppress_values[-1] is True
+
+    monitor.stop()
+    assert fake_keyboard.unhook_calls == 3

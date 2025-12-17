@@ -232,6 +232,7 @@ class MainController(QtCore.QObject):
             if hasattr(self._injector, "reset_focus_cache"):
                 self._injector.reset_focus_cache()
             try:
+                self._keyboard_monitor.set_passthrough_enabled(False)
                 self._keyboard_monitor.start()
                 self._log("Listener armed. Press any key to reveal the next character.")
             except Exception as exc:  # pragma: no cover - keyboard lib failure
@@ -249,6 +250,10 @@ class MainController(QtCore.QObject):
                 self._listener_paused = False
                 if hasattr(self._window, "set_listener_pause_state"):
                     self._window.set_listener_pause_state(False)
+                try:
+                    self._keyboard_monitor.set_passthrough_enabled(False)
+                except Exception:
+                    pass
 
     @QtCore.pyqtSlot(str)
     def _handle_global_key(self, key_name: str) -> None:
@@ -408,10 +413,26 @@ class MainController(QtCore.QObject):
         if hasattr(self._window, "set_listener_pause_state"):
             self._window.set_listener_pause_state(self._listener_paused)
         if self._listener_paused:
+            try:
+                self._keyboard_monitor.set_passthrough_enabled(True)
+            except Exception as exc:  # pragma: no cover - keyboard lib failure
+                self._show_error("Keyboard Hook Error", str(exc))
+                self._listener_paused = False
+                if hasattr(self._window, "set_listener_pause_state"):
+                    self._window.set_listener_pause_state(False)
+                return
             self._window.set_status_message(LISTENER_PAUSED_MESSAGE)
             self._log("Listener paused. Press AltGr to resume.")
             self._last_key_timestamp = None
         else:
+            try:
+                self._keyboard_monitor.set_passthrough_enabled(False)
+            except Exception as exc:  # pragma: no cover - keyboard lib failure
+                self._show_error("Keyboard Hook Error", str(exc))
+                self._listener_paused = True
+                if hasattr(self._window, "set_listener_pause_state"):
+                    self._window.set_listener_pause_state(True)
+                return
             self._window.set_status_message(LISTENER_ARMED_MESSAGE)
             self._log("Listener resumed.")
         self._schedule_state_save()

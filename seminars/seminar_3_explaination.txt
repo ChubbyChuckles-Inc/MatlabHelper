@@ -1,0 +1,445 @@
+Seminar 2 – Denavit-Hartenberg, inverse und differentielle Kinematik
+=================================================================
+
+Hinweis: Dieses Dokument ist als wortwörtliches Transkript gedacht,
+das du als Dozent:in während des Seminars sinngemäß vorlesen kannst.
+Die Reihenfolge orientiert sich an `seminar_2.m`.
+
+------------------------------------------------------------
+Einleitung
+------------------------------------------------------------
+
+"Willkommen zum zweiten Seminar. In diesem Teil beschäftigen wir uns mit
+drei zentralen Themen der Robotik:
+
+Erstens mit der Denavit-Hartenberg-Konvention, also einer systematischen
+Methode, um Roboterkinematiken über kaskadierte Transformationsmatrizen
+zu beschreiben.
+
+Zweitens mit der inversen Kinematik. Dabei wenden wir die kinematischen
+Modelle rückwärts an, um aus einer gewünschten Endeffektor-Position die
+entsprechenden Gelenkwinkel zu bestimmen.
+
+Und drittens mit der differentiellen Kinematik. Hier geht es um
+Geschwindigkeiten: also darum, wie sich Gelenkgeschwindigkeiten in
+kartesische Geschwindigkeiten des Endeffektors übersetzen.
+
+Das gesamte Seminar ist wieder im MATLAB-Skript `seminar_2.m` umgesetzt
+und baut auf den Hilfsfunktionen aus `seminar_1.m` auf – insbesondere
+auf den Transformations- und Visualisierungsfunktionen wie `rotX`,
+`rotY`, `rotZ`, `transl`, `tprint`, `rpy2rotm`, `rotm2rpy` und
+`visualize_transformation`."
+
+
+------------------------------------------------------------
+0. Voraussetzungen im Skript
+------------------------------------------------------------
+
+"Zu Beginn des Skripts rufen wir `clearvars` und `clc` auf, um die
+Arbeitsumgebung zu leeren und das Command Window zu säubern. Danach
+geben wir eine kurze Begrüßungszeile aus, um anzuzeigen, dass Seminar 2
+läuft.
+
+Wichtig ist: Wir gehen davon aus, dass entweder das Skript `seminar_1.m`
+schon einmal ausgeführt wurde – sodass die dort definierten Funktionen
+im Workspace sind – oder dass die Funktionen aus Seminar 1 in
+separate .m-Dateien ausgelagert und im MATLAB-Pfad verfügbar sind.
+
+Ansonsten würden Aufrufe wie `tprint` oder `visualize_transformation`
+nicht gefunden werden."
+
+
+------------------------------------------------------------
+1. Denavit-Hartenberg-Konvention – Motivation und Grundidee
+------------------------------------------------------------
+
+"Als erstes frischen wir unser Verständnis von Homogenen
+Transformationsmatrizen auf und erweitern es um die
+Denavit-Hartenberg-Konvention, kurz DH.
+
+Die DH-Konvention stellt eine Art Konstruktionsvorschrift dar, wie wir
+für jedes Gelenk eines Roboters eine standardisierte 4x4-Matrix
+aufbauen. Diese Matrix beschreibt die Transformation von einem
+Koordinatenrahmen zum nächsten.
+
+Im Code definieren wir dafür eine generische Hilfsfunktion
+`dh_transform(a, alpha, d, theta)`. Diese Funktion bildet genau die
+Standard-DH-Gleichung ab.
+
+Wir kommentieren die Parameter direkt über der Funktion:
+
+- `a_i` ist die Länge der x_i-Achse, also der Abstand zwischen den
+  z-Achsen zweier benachbarter Gelenke, gemessen entlang x.
+- `alpha_i` ist die Verdrehung um x_i, also der Winkel zwischen den
+  z-Achsen zweier Gelenke.
+- `d_i` ist die Verschiebung entlang der z_{i-1}-Achse.
+- `theta_i` ist die Verdrehung um die z_{i-1}-Achse.
+
+Im Körper der Funktion verwenden wir Kurzschreibweisen `ca`, `sa`,
+`ct`, `st` für die Sinus- und Kosinuswerte von alpha und theta.
+
+Dann setzen wir die Standard-DH-Matrix genau so zusammen, wie sie in
+vielen Robotik-Skripten und Büchern zu finden ist. Das Ziel dieser
+Funktion ist, dass wir nachher nur noch `dh_transform(...)` mit den
+richtigen Parametern aufrufen und uns nicht jedes Mal wieder an die
+volle Matrix erinnern müssen." 
+
+
+------------------------------------------------------------
+1.1 Beispiel: Planarer 2R-Roboter im XY
+------------------------------------------------------------
+
+"Um die DH-Konvention greifbar zu machen, betrachten wir ein sehr
+klassisches Beispiel: einen planaren 2-Gelenk-Roboter im XY.
+
+Wir definieren zwei Längen `L1` und `L2`, das sind ganz einfach die
+Längen der beiden starren Armsegmente. Dann legen wir beispielhafte
+Gelenkwinkel `q1` und `q2` fest, hier zum Beispiel 30 Grad und 45 Grad.
+
+Die zugehörigen DH-Parameter sind für dieses einfache Beispiel:
+
+- Für das erste Gelenk: a1 = L1, alpha1 = 0, d1 = 0, theta1 = q1.
+- Für das zweite Gelenk: a2 = L2, alpha2 = 0, d2 = 0, theta2 = q2.
+
+Wir rufen unsere `dh_transform`-Funktion zweimal auf und bekommen damit
+T_0^1 und T_1^2. Multipliziert ergibt sich T_0^2, also die gesamte
+Basis-zu-Endeffektor-Transformation.
+
+Mit `tprint` geben wir die Matrizen schön formatiert im Command Window
+aus: erst T_0^1, dann T_0^2.
+
+Anschließend wollen wir das System natürlich sehen. Wir erzeugen eine
+Figur und Achse und rufen `visualize_transformation` zunächst mit T_0^1
+und dann mit T_0^2 auf. Die Funktion zeichnet jeweils den Basisframe und
+den transformierten Frame in die gleiche Achse. Dadurch sieht man sehr
+anschaulich, wo Frame 1 und wo Frame 2 im Raum liegen.
+
+Zum Abschluss zeichnen wir noch eine schwarze Linie durch die
+Endpunkte: vom Basisursprung über die Spitze des ersten Segments hin zur
+Endeffektorposition. So erkennt man intuitiv die Robotergeometrie."
+
+
+------------------------------------------------------------
+1.2 Interaktive Variation der Gelenkwinkel
+------------------------------------------------------------
+
+"Im nächsten Abschnitt bereiten wir eine Art 'gedankliche Interaktivität'
+vor. Wir definieren Gitter von Gelenkwinkeln `q1_vals` und `q2_vals`, je
+von -90 bis +90 Grad.
+
+In zwei geschachtelten Schleifen laufen wir alle Kombinationen durch.
+Für jedes Paar `(q1_val, q2_val)` berechnen wir erneut T_0^1, T_1^2,
+T_0^2 und extrahieren die Endeffektorposition `p`.
+
+Für jede Kombination drucken wir eine Zeile:
+
+  q1 = ... deg, q2 = ... deg -> EE = [x y z]
+
+Das ist zunächst nur eine textuelle Ausgabe, aber damit lässt sich sehr
+gut diskutieren, wie sich die Lagen des Endeffektors verändern, wenn wir
+an den Gelenken drehen.
+
+In einer erweiterten Variante könnte man diese Punkte auch gleich in
+2D oder 3D plotten, um den Arbeitsraum dieses Roboters sichtbar zu
+machen – genau das greifen wir später in den Aufgaben noch einmal auf."
+
+
+------------------------------------------------------------
+2. Inverse Kinematik für den 2R-Planarroboter
+------------------------------------------------------------
+
+"Nun drehen wir die Kinematik um: Statt von Gelenkwinkeln zur Position
+gehen wir von der gewünschten Position zurück zu den Gelenkwinkeln. Das
+ist inverse Kinematik.
+
+Wir implementieren eine Funktion `ik_2r_planar(L1, L2, x, y)`. Sie
+bekommt die Armlängen und eine Zielposition (x, y) und gibt bis zu zwei
+Lösungen für `q1` und `q2` zurück.
+
+Zunächst berechnen wir `r2`, also den quadratischen Abstand der
+Zielposition vom Ursprung. Dann formen wir mithilfe des Kosinussatzes
+den Wert `c2` für cos(q2).
+
+Eine wichtige Konsistenzprüfung ist: Wenn `|c2| > 1`, dann liegt der
+gewünschte Punkt außerhalb des ringförmigen Arbeitsbereichs dieses
+2-Gelenk-Arms. In diesem Fall werfen wir einen Fehler und melden, dass
+der Zielpunkt außerhalb der Reichweite liegt.
+
+Ansonsten gibt es zwei mögliche q2-Werte:
+
+- `q2` mit positivem Sinus, das entspricht einer bestimmten
+  Ellbogenkonfiguration.
+- `q2` mit negativem Sinus, das entspricht der 'gespiegelten' Variante,
+  zum Beispiel Ellbogen oben vs. Ellbogen unten.
+
+Für jedes dieser `q2` berechnen wir mit einer Standardformel `q1`.
+Das Ergebnis sind zwei Paare `(q1, q2)`, die wir in Vektoren
+`q1_solutions` und `q2_solutions` zurückgeben.
+
+Im Hauptskript wählen wir nun einen Beispielzielpunkt, etwa x = 0.5,
+y = 0.2 Meter. Wir rufen `ik_2r_planar` auf und durchlaufen alle
+Lösungen. Für jede Lösung geben wir die Winkel in Grad aus und
+kommentieren, dass es sich um unterschiedliche Ellbogenkonfigurationen
+handelt.
+
+Ganz wichtig ist dann der anschließende Konsistenzcheck: Für jede
+gefundenen Konfiguration berechnen wir wieder die Vorwärtskinematik
+über T_0^1 und T_1^2 und vergleichen die resultierenden Endeffektor-
+koordinaten mit dem ursprünglichen Zielpunkt. So sehen wir, ob unsere
+IK-Funktion richtig arbeitet und ob numerische Rundungsfehler vorkommen."
+
+
+------------------------------------------------------------
+3. Differentielle Kinematik – Jacobi-Matrix für 2R-Planar
+------------------------------------------------------------
+
+"Nachdem wir Positionen und Orientierungen modelliert haben, betrachten
+wir nun Geschwindigkeiten. Die Frage lautet: Wie hängen Gelenk-
+geschwindigkeiten, also `q_dot`, mit der resultierenden Geschwindigkeit
+des Endeffektors `v` zusammen?
+
+Für unseren 2R-Planararm leiten wir die Jacobi-Matrix analytisch her
+und kapseln sie in der Funktion `jacobian_2r_planar(L1, L2, q1, q2)`.
+
+Die Jacobi-Matrix J ist hier eine 2x2-Matrix und verknüpft
+
+  v = [v_x; v_y] = J(q1, q2) * [q1_dot; q2_dot].
+
+Die Einträge von J ergeben sich durch Ableitung der Endeffektor-
+position nach den Gelenkwinkeln. Im Code stehen die vier Einträge in
+Kompaktform:
+
+- J11 und J12 in der ersten Zeile für v_x,
+- J21 und J22 in der zweiten Zeile für v_y.
+
+Wir setzen beispielhafte Gelenkwinkel, rufen `jacobian_2r_planar` auf,
+und geben die resultierende Matrix im Command Window aus.
+
+Dann definieren wir eine Beispiel-Gelenkgeschwindigkeit `qdot`, etwa
+[0.1; 0.2] rad/s. Durch Multiplikation `v = J * qdot` erhalten wir die
+entsprechende kartesische Geschwindigkeit des Endeffektors im XY.
+
+Diese Interpretation ist extrem wichtig: Kleine Änderungen in den
+Gelenken werden durch die Jacobi in Änderungen der Endeffektor-
+position übersetzt. Dies bildet die Grundlage für viele Verfahren in
+Regelung und Trajektorienplanung."
+
+
+------------------------------------------------------------
+4. Erweiterung auf 3D – 3-achsiger Arm mit DH und Jacobi
+------------------------------------------------------------
+
+"Als nächstes verallgemeinern wir die Ideen auf einen dreidimensionalen
+Arm mit drei Rotationsgelenken. Man kann sich das ungefähr wie einen
+Schulter-Schulter-Ellbogen-Arm vorstellen.
+
+Wir definieren drei Längen `L1_3D`, `L2_3D`, `L3_3D`. Die DH-Parameter
+sind exemplarisch gewählt, so dass der erste Joint eine 90-Grad-
+Verdrehung um x hat und die weiteren zwei Joints entlang einer Kette in
+etwa in der horizontalen Ebene liegen.
+
+Dann implementieren wir die Funktion `fk_3d_rrr(q, L2_3D, L3_3D)`. Sie
+nimmt einen Winkelvektor `q = [q1, q2, q3]` und konstruiert analog zum
+2D-Fall T_0^1, T_1^2, T_2^3. Multipliziert ergibt das T_0^3, also die
+Transformation von der Basis zum Endeffektor.
+
+Im Skript wählen wir eine Beispielkonfiguration, rufen
+`fk_3d_rrr` auf und geben T_0^3 wieder mit `tprint` aus. So sehen wir
+Position und Orientierung des Endeffektors.
+
+Um auch hier die Geometrie greifbar zu machen, nutzen wir erneut
+`visualize_transformation`, um die Transformation von Basis zum
+Endeffektor im 3D-Raum darzustellen."
+
+
+------------------------------------------------------------
+4.1 Differentielle Kinematik – numerische Jacobi für 3DOF
+------------------------------------------------------------
+
+"Für den 3DOF-Arm ist die analytische Herleitung der Jacobi-Matrix
+aufwendiger. Deshalb implementieren wir zunächst eine generische
+numerische Variante.
+
+Die Funktion `numerical_jacobian_fk3d(fk_handle, q, delta)` erhält
+
+- eine Funktionsreferenz `fk_handle`, die für einen Winkelvektor `q`
+  die homogene Transformationsmatrix zurückgibt,
+- einen Gelenkwinkelvektor `q`,
+- und eine kleine Störung `delta`.
+
+Wir berechnen zuerst die Endeffektorposition `p0` zur ungestörten
+Konfiguration. Dann stören wir jede Komponente von `q` nacheinander um
+`delta`, rufen die FK jeweils neu auf und bestimmen die gestörte
+Position `p_pert`.
+
+Die jeweilige Spalte der Jacobi-Matrix erhalten wir als
+`(p_pert - p0) / delta`. So approximieren wir die partiellen Ableitungen
+numerisch.
+
+Im Skript rufen wir diese Funktion mit unserem 3DOF-FK auf, berechnen
+die Jacobi für eine Beispielkonfiguration und geben die resultierende
+3x3-Matrix aus. Diese Matrix verknüpft dann Gelenkgeschwindigkeiten
+`[q1_dot, q2_dot, q3_dot]^T` mit der translatorischen Geschwindigkeit des
+Endeffektors im Raum."
+
+
+------------------------------------------------------------
+5. Anwendungsaufgaben und Musterlösungen
+------------------------------------------------------------
+
+"Im letzten Teil des Skripts definieren wir mehrere Aufgabenblöcke, die
+sich sehr gut für eigenständiges Üben oder für Gruppenarbeiten im
+Seminar eignen. Direkt darunter sind Musterlösungen eingefügt, die sich
+Schritt für Schritt nachvollziehen lassen.
+
+Ich gehe die Aufgaben nun nacheinander durch und erkläre jeweils kurz
+den Ansatz der Musterlösung."
+
+
+------------------------------------------------------------
+Aufgabe 1 – Workspace-Analyse 2R-Planar
+------------------------------------------------------------
+
+"In Aufgabe 1 sollen wir den Arbeitsraum des 2R-Planararms bestimmen.
+
+Der Aufgabenstellung nach sollen wir über `q1` und `q2` in festen
+Bereichen iterieren, die Endeffektorpositionen berechnen und in einem
+2D-Plot darstellen.
+
+Die Musterlösung erzeugt zunächst eine neue Figur und eine Achse, setzt
+die Skalierung gleich und beschriftet die Achsen mit x und y.
+
+Dann definieren wir Rastervektoren für `q1` und `q2`, zum Beispiel 91
+Werte von -90 bis +90 Grad. In zwei geschachtelten Schleifen laufen wir
+über alle Kombinationen, berechnen mit `dh_transform` T_0^1, T_1^2, T_0^2
+und extrahieren die xy-Position des Endeffektors.
+
+Alle Punkte sammeln wir in einer Matrix `workspace_points` und plotten
+sie dann als blaue Punkte im xy-Diagramm. So entsteht eine recht dichte
+Punktwolke, die den erreichbaren Bereich zeigt.
+
+Im Kommentar wird außerdem angedeutet, wie man Mehrfachlösungen
+identifizieren könnte: Man kann prüfen, welche Punkte mehrfach
+vorkommen, oder anhand der Entfernung zwischen Punkten klustern. Das ist
+dann ein guter Ausgangspunkt, um über Redundanz und Mehrfachlösungen zu
+sprechen."
+
+
+------------------------------------------------------------
+Aufgabe 2 – Inverse Kinematik als Funktion
+------------------------------------------------------------
+
+"In Aufgabe 2 erweitern wir unsere IK-Funktion auf eine Liste von
+Zielpunkten.
+
+Die Musterlösung führt dazu eine Hilfsfunktion `ik_2r_planar_all` ein.
+Sie erwartet eine Matrix von Zielpunkten, in der jede Zeile ein Paar
+(x, y) ist.
+
+Für jeden dieser Punkte rufen wir unsere bestehende Funktion
+`ik_2r_planar` auf. Falls eine Lösung existiert, speichern wir die
+entsprechenden Winkelpaare in einer Zelle ab. Falls der Punkt nicht
+im Arbeitsbereich liegt, fangen wir den Fehler ab und speichern eine
+leere Matrix.
+
+Im Anschluss definieren wir im Skript fünf Beispielzielpunkte,
+rufen `ik_2r_planar_all` auf und gehen die Ergebnisse durch. Für jeden
+Punkt drucken wir die gefundenen Lösungen in Grad aus und berechnen als
+zusätzliche Kontrolle die Vorwärtskinematik, um zu zeigen, dass die
+Zielpunkte tatsächlich wieder getroffen werden.
+
+Dadurch sehen die Teilnehmer:innen sehr schön, wie inverse und
+Vorwärtskinematik zusammenspielen und wie man IK-Funktionen robust
+gegen unerreichbare Punkte gestaltet."
+
+
+------------------------------------------------------------
+Aufgabe 3 – Trajektorienplanung im Gelenkraum
+------------------------------------------------------------
+
+"Aufgabe 3 dreht sich um Trajektorienplanung im Gelenkraum und deren
+Abbildung in den kartesischen Raum.
+
+Die Musterlösung implementiert eine einfache, lineare Gelenkraum-
+trajektorie zwischen einer Startkonfiguration `q_start` und einer
+Zielkonfiguration `q_goal`. Wir wählen eine Gesamtdauer `T_total` und
+einen Zeitschritt `dt` und bauen daraus einen Zeitvektor.
+
+Für jeden Zeitpunkt berechnen wir:
+
+- die aktuelle Gelenkkonfiguration `q(t)` über lineare Interpolation,
+- eine konstante Gelenkgeschwindigkeit `q_dot`,
+- und mit Hilfe der Jacobi `J(q)` die kartesische Geschwindigkeit
+  `v = J * q_dot`.
+
+Die translatorische Geschwindigkeit hat hier zwei Komponenten, v_x und
+v_y. Am Ende erzeugen wir einen Plot mit zwei Unterdiagrammen: oben v_x
+über der Zeit, unten v_y über der Zeit.
+
+So entsteht eine anschauliche Darstellung, wie sich eine lineare
+Bewegung im Gelenkraum in eine möglicherweise sehr nichtlineare
+Geschwindigkeitsentwicklung im kartesischen Raum übersetzt."
+
+
+------------------------------------------------------------
+Aufgabe 4 – Orientierungserweiterung für den 3DOF-Arm
+------------------------------------------------------------
+
+"In Aufgabe 4 geht es darum, unsere 3D-Vorwärtskinematik so zu
+erweitern, dass sie neben der Transformationsmatrix explizit auch
+Roll-Pitch-Yaw-Winkel zurückgibt.
+
+Die Musterlösung definiert eine neue Funktion
+`fk_3d_rrr_with_rpy(q, L2_3D, L3_3D)`. Diese ruft zunächst unsere
+bestehende FK-Funktion `fk_3d_rrr` auf, um die homogene Matrix zu
+berechnen. Anschließend wendet sie `rotm2rpy` auf diese Matrix an, um
+die RPY-Winkel zu erhalten.
+
+Im Skript rufen wir diese Funktion für eine Testkonfiguration auf,
+geben die resultierenden RPY-Winkel aus und prüfen die Konsistenz:
+Wir nehmen die RPY-Winkel, bauen mit `rpy2rotm` erneut eine Rotations-
+matrix und vergleichen diese mit der ursprünglichen aus der FK.
+
+Die Differenz der Matrizen sollte nahe Null sein; eventuelle Abweichungen
+zeigen numerisches Rauschen oder unterschiedliche Konventionen auf. Das
+bietet eine sehr gute Grundlage, um über Euler-Winkel, Singularitäten
+und Rotationsdarstellungen zu diskutieren."
+
+
+------------------------------------------------------------
+Aufgabe 5 – Vergleich numerische vs. analytische Jacobi
+------------------------------------------------------------
+
+"Die letzte Aufgabe zielt darauf ab, das Verständnis für die Jacobi-
+Matrix zu vertiefen, indem wir eine analytische Herleitung mit der
+numerischen Approximation vergleichen.
+
+Im Skript ist dazu eine kommentierte Musterstruktur eingefügt. Sie
+schlägt eine mögliche Signatur für eine Funktion
+`jacobian_3d_rrr_analytic` vor, in der die analytische Jacobi für den
+3DOF-Arm implementiert werden soll.
+
+Darunter ist ein Pseudocode für eine Schleife über mehrere
+Zufallskonfigurationen skizziert. Für jede dieser Konfigurationen:
+
+- berechnen wir die numerische Jacobi mit unserer Funktion
+  `numerical_jacobian_fk3d`,
+- berechnen die analytische Jacobi mit
+  `jacobian_3d_rrr_analytic`,
+- und vergleichen dann die beiden Matrizen über die Frobenius-Norm der
+  Differenz.
+
+So sieht man sehr direkt, ob die analytische Herleitung korrekt ist und
+wo eventuell Fehler in der Formel stecken könnten. Die numerische Jacobi
+ist hier sozusagen unser 'Ground Truth' – zumindest näherungsweise.
+
+Damit schließt das Seminar 2: Wir haben gesehen, wie man Roboter mit der
+DH-Konvention beschreibt, wie man Vorwärts- und inverse Kinematik
+formuliert und wie man über die Jacobi-Matrix die Brücke zwischen
+Gelenk- und kartesischem Raum auf Spannungsebene, also auf
+Geschwindigkeiten, schlagen kann."
+
+
+------------------------------------------------------------
+Ende des Transkripts
+------------------------------------------------------------

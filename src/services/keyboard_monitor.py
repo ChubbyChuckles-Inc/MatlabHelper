@@ -24,6 +24,7 @@ class KeyboardMonitor(QtCore.QObject):
         self._keyboard = keyboard_module
         self._hook: Optional[object] = None
         self._suspended = False
+        self._suppress_events = True
 
     def is_listening(self) -> bool:
         return self._hook is not None
@@ -33,7 +34,7 @@ class KeyboardMonitor(QtCore.QObject):
         if self.is_listening():
             return
         try:
-            self._hook = self._keyboard.hook(self._handle_event, suppress=True)
+            self._hook = self._keyboard.hook(self._handle_event, suppress=self._suppress_events)
         except Exception as exc:  # pragma: no cover - library level failure
             raise KeyboardMonitorError("Failed to start keyboard hook.") from exc
         self.listening_changed.emit(True)
@@ -49,6 +50,27 @@ class KeyboardMonitor(QtCore.QObject):
         finally:
             self._hook = None
         self.listening_changed.emit(False)
+
+    def set_passthrough_enabled(self, allow: bool) -> None:
+        suppress = not allow
+        if self._suppress_events == suppress:
+            return
+        self._suppress_events = suppress
+        if not self.is_listening():
+            return
+        try:
+            if self._hook is not None:
+                self._keyboard.unhook(self._hook)
+        except Exception as exc:  # pragma: no cover - library level failure
+            self._hook = None
+            self.listening_changed.emit(False)
+            raise KeyboardMonitorError("Failed to adjust keyboard hook.") from exc
+        try:
+            self._hook = self._keyboard.hook(self._handle_event, suppress=self._suppress_events)
+        except Exception as exc:  # pragma: no cover - library level failure
+            self._hook = None
+            self.listening_changed.emit(False)
+            raise KeyboardMonitorError("Failed to adjust keyboard hook.") from exc
 
     def suspend(self) -> None:
         self._suspended = True

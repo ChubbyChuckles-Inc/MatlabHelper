@@ -1,4 +1,3 @@
-function lecture00_basics()
 % Vorlesung 0 — MATLAB‑Grundlagen für Robotik (Mathematik, Visualisierung, Kinematik)
 %
 % Ausführung
@@ -179,7 +178,7 @@ y = randn(5,1);
 [U,S,V] = svd(M, 'econ'); %#ok<ASGLU>  % svd berechnet die Singulärwertzerlegung der Matrix
 x_ls = M\y; sig = diag(S).';  % diag extrahiert die Diagonale der Singulärwertmatrix
 fprintf('SVD(M): Singulärwerte = [%.3f %.3f %.3f]\n', sig);
-fprintf('Least‑Squares‑Lösung: ‖x‖ = %.3f\n', norm(x_ls));
+fprintf('Least‑Squares‑Lösung: ‖x‖ = %.3f\n', norm(x_ls));||
 
 %% 3) Visualisierung: 2D und 3D
 fprintf('\n=== Visualisierung — Grundlagen ===\n');
@@ -280,4 +279,3 @@ end
 draw_frame3(ax3, Tee, 0.1, 3);
 
 fprintf('\nEnde von Vorlesung 0. Vorschlag: Fahren Sie mit Vorlesung 1 (Utilities) fort.\n');
-end

@@ -59,6 +59,7 @@ class StubKeyboardMonitor(QtCore.QObject):
     def __init__(self) -> None:
         super().__init__()
         self.started = False
+        self.passthrough_enabled = False
 
     def start(self) -> None:
         self.started = True
@@ -74,6 +75,9 @@ class StubKeyboardMonitor(QtCore.QObject):
 
     def is_listening(self) -> bool:
         return self.started
+
+    def set_passthrough_enabled(self, allow: bool) -> None:
+        self.passthrough_enabled = allow
 
 
 def test_controller_injects_matlab_script(qtbot, tmp_path: Path, monkeypatch) -> None:
@@ -153,12 +157,14 @@ def test_altgr_toggles_listener(qtbot, tmp_path: Path, monkeypatch) -> None:
     monitor.fire("AltGr")
 
     assert window.status_message() == LISTENER_PAUSED_MESSAGE
+    assert monitor.passthrough_enabled is True
 
     monitor.fire("enter")
     assert len(injector.calls) == before_pause
 
     monitor.fire("AltGr")
     assert window.status_message() == LISTENER_ARMED_MESSAGE
+    assert monitor.passthrough_enabled is False
 
     monitor.fire("tab")
     assert len(injector.calls) > before_pause
