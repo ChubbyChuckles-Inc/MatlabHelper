@@ -41,7 +41,8 @@ a =     [ 0.00,  0.35,  0.25, 0.00, 0.00, 0.00];
 alpha = [ pi/2, 0.00,  0.00,  pi/2, -pi/2, 0.00];
 d =     [ 0.40, 0.00,  0.00, 0.30, 0.00, 0.10];
 
-theta_offset = zeros(1,6);
+n0 = numel(a);
+theta_offset = zeros(1, n0);
 
 % Gelenkgrenzen (rad) – bewusst moderat gewählt (typisch: +-170° etc.)
 q_min = deg2rad([-170, -120, -170, -190, -120, -360]);
@@ -49,6 +50,14 @@ q_max = deg2rad([ 170,  120,  170,  190,  120,  360]);
 
 % Startkonfiguration
 q0 = deg2rad([0, -30, 60, 0, 30, 0]);
+
+% Consistency checks (helps when students change joint count)
+if numel(alpha) ~= n0 || numel(d) ~= n0
+    error('DH parameter vectors a/alpha/d must have the same length.');
+end
+if numel(q_min) ~= n0 || numel(q_max) ~= n0 || numel(q0) ~= n0
+    error('q_min/q_max/q0 must match the number of joints.');
+end
 
 %% Precompute: Singularity Map (global)
 % Kernidee:
@@ -67,12 +76,12 @@ fprintf("Precompute: %d Samples (das kann kurz dauern) ...\n", N_samples);
 
 tStart = tic;
 
-Q = zeros(N_samples, 6);
+Q = zeros(N_samples, n0);
 P = zeros(N_samples, 3);
 SigmaMin = zeros(N_samples, 1);
 
 for k = 1:N_samples
-    q = q_min + rand(1,6).*(q_max - q_min);
+    q = q_min + rand(1,n0).*(q_max - q_min);
     Q(k,:) = q;
 
     [T_all, o_all, z_all] = fk_chain_dh(a, alpha, d, q + theta_offset);
@@ -134,9 +143,9 @@ sc_focus = scatter3(ax, nan, nan, nan, 40, 'w', 'filled', ...
     'MarkerFaceAlpha', 0.90, 'MarkerEdgeColor', 'k', 'LineWidth', 0.5);
 
 % Roboter-Plot (per-Link farbig, wirkt deutlich "wertiger")
-link_colors = lines(6);
-robot_links = gobjects(1,6);
-for i = 1:6
+link_colors = lines(n0);
+robot_links = gobjects(1,n0);
+for i = 1:n0
     robot_links(i) = plot3(ax, nan, nan, nan, '-', 'LineWidth', 5, 'Color', link_colors(i,:));
 end
 robot_joints = scatter3(ax, nan, nan, nan, 70, [0.15 0.15 0.15], 'filled');
@@ -180,17 +189,23 @@ uicontrol('Parent', panelGeom, 'Style', 'text', 'Units', 'normalized', ...
 geomData = [a(:), rad2deg(alpha(:)), d(:), rad2deg(theta_offset(:)), rad2deg(q_min(:)), rad2deg(q_max(:))];
 
 geom_table = uitable('Parent', panelGeom, 'Units', 'normalized', ...
-    'Position', [0.05 0.18 0.90 0.66], ...
+    'Position', [0.05 0.28 0.90 0.56], ...
     'Data', geomData, ...
     'ColumnName', {'a [m]', 'alpha [deg]', 'd [m]', 'theta0 [deg]', 'qmin [deg]', 'qmax [deg]'}, ...
     'ColumnEditable', true(1,6), ...
-    'RowName', arrayfun(@(i) sprintf('j%d', i), 1:6, 'UniformOutput', false));
+    'RowName', arrayfun(@(i) sprintf('j%d', i), 1:n0, 'UniformOutput', false));
+
+btn_add_joint = uicontrol('Parent', panelGeom, 'Style', 'pushbutton', 'Units', 'normalized', ...
+    'Position', [0.05 0.17 0.42 0.09], 'String', 'Add Joint');
+
+btn_del_joint = uicontrol('Parent', panelGeom, 'Style', 'pushbutton', 'Units', 'normalized', ...
+    'Position', [0.53 0.17 0.42 0.09], 'String', 'Delete Last Joint');
 
 btn_apply_geom = uicontrol('Parent', panelGeom, 'Style', 'pushbutton', 'Units', 'normalized', ...
-    'Position', [0.05 0.02 0.42 0.14], 'String', 'Apply Geometry');
+    'Position', [0.05 0.05 0.42 0.10], 'String', 'Apply Geometry');
 
 btn_reset_geom = uicontrol('Parent', panelGeom, 'Style', 'pushbutton', 'Units', 'normalized', ...
-    'Position', [0.53 0.02 0.42 0.14], 'String', 'Reset Demo');
+    'Position', [0.53 0.05 0.42 0.10], 'String', 'Reset Demo');
 
 % Zusätzliche Controls (Threshold, Dichte, Toggles)
 uicontrol('Parent', panelCtrl, 'Style', 'text', 'Units', 'normalized', ...
@@ -249,11 +264,17 @@ title(diagAx, 'Singular values of J');
 xlabel(diagAx, 'i');
 ylabel(diagAx, '\sigma');
 set(diagAx, 'YScale', 'log');
-barSing = bar(diagAx, 1:6, ones(1,6));
+barSing = bar(diagAx, 1:n0, ones(1,n0));
 barSing.FaceColor = [0.25 0.25 0.25];
 barSing.EdgeColor = 'none';
-diagAx.XLim = [0.5 6.5];
+diagAx.XLim = [0.5 max(1.5, n0+0.5)];
 diagAx.YLim = [1e-6 1e2];
+
+btn_export = uicontrol('Parent', panelDiag, 'Style', 'pushbutton', 'Units', 'normalized', ...
+    'Position', [0.62 0.94 0.34 0.06], 'String', 'Export...');
+
+% Separate live figure: joint velocity education (linked to main UI)
+[figVel, velAx, velBar, velTable, velText] = create_velocity_figure(fig, n0);
 
 % Data in guidata
 data = struct();
@@ -262,6 +283,7 @@ data.q_min = q_min; data.q_max = q_max;
 data.q0 = q0;
 data.N_samples = N_samples;
 data.ax = ax;
+data.panelJoints = panelJoints;
 data.sc_sing = sc_sing;
 data.sc_focus = sc_focus;
 data.robot_links = robot_links;
@@ -274,6 +296,8 @@ data.ell_axes = ell_axes;
 % Geometry UI handles
 data.panelGeom = panelGeom;
 data.geom_table = geom_table;
+data.btn_add_joint = btn_add_joint;
+data.btn_del_joint = btn_del_joint;
 data.btn_apply_geom = btn_apply_geom;
 data.btn_reset_geom = btn_reset_geom;
 
@@ -292,16 +316,16 @@ data.Q_sing = Q_all(isSing,:);
 data.score_sing = score_all(isSing);
 
 % Slider controls
-sliders = gobjects(1,6);
-edits = gobjects(1,6);
-labels = gobjects(1,6);
+sliders = gobjects(1,n0);
+edits = gobjects(1,n0);
+labels = gobjects(1,n0);
 
 % Initial values
 q_current = q0;
 
-for i = 1:6
+for i = 1:n0
     % Joint-Controls: eine Zeile pro Gelenk (in eigenem Panel)
-    y = 0.83 - (i-1)*0.155;
+    y = 0.83 - (i-1)*(0.155 * 6 / max(6, n0));
 
     labels(i) = uicontrol('Parent', panelJoints, 'Style', 'text', 'Units', 'normalized', ...
         'Position', [0.05 y 0.20 0.12], 'String', sprintf('q%d [deg]', i), 'HorizontalAlignment', 'left');
@@ -326,6 +350,7 @@ infoText = uicontrol('Parent', panelDiag, 'Style', 'text', 'Units', 'normalized'
 
 data.sliders = sliders;
 data.edits = edits;
+data.labels = labels;
 data.infoText = infoText;
 
 data.th_slider = th_slider;
@@ -339,6 +364,12 @@ data.preset_menu = preset_menu;
 data.presets = build_presets(data.q_min, data.q_max, data.q0);
 data.diagAx = diagAx;
 data.barSing = barSing;
+data.btn_export = btn_export;
+data.figVel = figVel;
+data.velAx = velAx;
+data.velBar = velBar;
+data.velTable = velTable;
+data.velText = velText;
 data.cb_show_cloud = cb_show_cloud;
 data.cb_show_focus = cb_show_focus;
 data.cb_show_ell = cb_show_ell;
@@ -375,6 +406,10 @@ btn_rand.Callback = @(src,~) onRandom(src);
 
 btn_apply_geom.Callback = @(src,~) onApplyGeometry(src);
 btn_reset_geom.Callback = @(src,~) onResetGeometry(src);
+btn_add_joint.Callback = @(src,~) onAddJoint(src);
+btn_del_joint.Callback = @(src,~) onDeleteJoint(src);
+
+btn_export.Callback = @(src,~) onExport(src);
 
 %% Callbacks
 function onSliderChanged(src, jointIdx)
@@ -458,7 +493,7 @@ function onHome(src)
     figLocal = ancestor(src, 'figure');
     dataLocal = guidata(figLocal);
     qhome = dataLocal.q0;
-    for ii = 1:6
+    for ii = 1:numel(dataLocal.sliders)
         dataLocal.sliders(ii).Value = qhome(ii);
         dataLocal.edits(ii).String = sprintf('%.1f', rad2deg(qhome(ii)));
     end
@@ -470,8 +505,9 @@ end
 function onRandom(src)
     figLocal = ancestor(src, 'figure');
     dataLocal = guidata(figLocal);
-    q = dataLocal.q_min + rand(1,6).*(dataLocal.q_max - dataLocal.q_min);
-    for ii = 1:6
+    n = numel(dataLocal.q_min);
+    q = dataLocal.q_min + rand(1,n).*(dataLocal.q_max - dataLocal.q_min);
+    for ii = 1:numel(dataLocal.sliders)
         dataLocal.sliders(ii).Value = q(ii);
         dataLocal.edits(ii).String = sprintf('%.1f', rad2deg(q(ii)));
     end
@@ -490,7 +526,7 @@ function onPresetChanged(src)
         q = dataLocal.q0;
     end
 
-    for ii = 1:6
+    for ii = 1:numel(dataLocal.sliders)
         q(ii) = min(max(q(ii), dataLocal.q_min(ii)), dataLocal.q_max(ii));
         dataLocal.sliders(ii).Value = q(ii);
         dataLocal.edits(ii).String = sprintf('%.1f', rad2deg(q(ii)));
@@ -505,14 +541,27 @@ function onApplyGeometry(src)
     dataLocal = guidata(figLocal);
 
     tbl = dataLocal.geom_table.Data;
-    if isempty(tbl) || size(tbl,2) ~= 6 || size(tbl,1) ~= 6
-        errordlg('Geometry table must be 6x6 (a, alpha, d, theta0, qmin, qmax).', 'Invalid geometry');
+    if isempty(tbl) || size(tbl,2) ~= 6 || size(tbl,1) < 1
+        errordlg('Geometry table must have 6 columns (a, alpha, d, theta0, qmin, qmax) and at least 1 row.', 'Invalid geometry');
         return;
     end
+
+    % Some MATLAB versions return table data as cell arrays after edits
+    if iscell(tbl)
+        try
+            tbl = cell2mat(tbl);
+        catch
+            errordlg('Geometry table contains non-numeric values.', 'Invalid geometry');
+            return;
+        end
+    end
+
     if any(~isfinite(tbl(:)))
         errordlg('Geometry table contains non-numeric values.', 'Invalid geometry');
         return;
     end
+
+    nNew = size(tbl,1);
 
     a_new = tbl(:,1).';
     alpha_new = deg2rad(tbl(:,2).');
@@ -533,16 +582,26 @@ function onApplyGeometry(src)
     dataLocal.q_min = qmin_new;
     dataLocal.q_max = qmax_new;
 
+    % Keep row names consistent
+    dataLocal.geom_table.RowName = arrayfun(@(i) sprintf('j%d', i), 1:nNew, 'UniformOutput', false);
+
     % Update "home" as mid-range (safe default) unless existing home is still valid
     q0_new = 0.5*(qmin_new + qmax_new);
-    if isfield(dataLocal, 'q0') && numel(dataLocal.q0) == 6
+    if isfield(dataLocal, 'q0') && numel(dataLocal.q0) == nNew
         q0_try = min(max(dataLocal.q0, qmin_new), qmax_new);
         q0_new = q0_try;
     end
     dataLocal.q0 = q0_new;
 
+    % If joint count changed, rebuild slider UI and robot link objects
+    if ~isfield(dataLocal, 'sliders') || numel(dataLocal.sliders) ~= nNew
+        guidata(figLocal, dataLocal);
+        rebuildJointAndRobotUI(figLocal, nNew);
+        dataLocal = guidata(figLocal);
+    end
+
     % Update slider ranges + clamp values
-    for ii = 1:6
+    for ii = 1:numel(dataLocal.sliders)
         dataLocal.sliders(ii).Min = dataLocal.q_min(ii);
         dataLocal.sliders(ii).Max = dataLocal.q_max(ii);
         qv = min(max(dataLocal.sliders(ii).Value, dataLocal.q_min(ii)), dataLocal.q_max(ii));
@@ -557,6 +616,343 @@ function onApplyGeometry(src)
     % Recompute singularity cloud for new geometry
     guidata(figLocal, dataLocal);
     recomputeCloud(figLocal);
+end
+
+function onAddJoint(src)
+    figLocal = ancestor(src, 'figure');
+    dataLocal = guidata(figLocal);
+
+    tbl = dataLocal.geom_table.Data;
+    if isempty(tbl)
+        tbl = zeros(0,6);
+    end
+    if iscell(tbl)
+        try
+            tbl = cell2mat(tbl);
+        catch
+            tbl = zeros(0,6);
+        end
+    end
+    if size(tbl,2) ~= 6
+        errordlg('Geometry table must have 6 columns.', 'Add joint');
+        return;
+    end
+
+    % Default new joint row (students will edit)
+    newRow = [0, 0, 0, 0, -180, 180];
+    tbl = [tbl; newRow];
+
+    dataLocal.geom_table.Data = tbl;
+    dataLocal.geom_table.RowName = arrayfun(@(i) sprintf('j%d', i), 1:size(tbl,1), 'UniformOutput', false);
+    guidata(figLocal, dataLocal);
+end
+
+function onDeleteJoint(src)
+    figLocal = ancestor(src, 'figure');
+    dataLocal = guidata(figLocal);
+
+    tbl = dataLocal.geom_table.Data;
+    if iscell(tbl)
+        try
+            tbl = cell2mat(tbl);
+        catch
+            errordlg('Geometry table contains non-numeric values.', 'Delete joint');
+            return;
+        end
+    end
+
+    if isempty(tbl) || size(tbl,1) <= 1
+        errordlg('Robot must have at least 1 joint.', 'Delete joint');
+        return;
+    end
+
+    tbl = tbl(1:end-1, :);
+    dataLocal.geom_table.Data = tbl;
+    dataLocal.geom_table.RowName = arrayfun(@(i) sprintf('j%d', i), 1:size(tbl,1), 'UniformOutput', false);
+    guidata(figLocal, dataLocal);
+end
+
+function rebuildJointAndRobotUI(figLocal, nNew)
+    dataLocal = guidata(figLocal);
+
+    % --- Robot links ---
+    if isfield(dataLocal, 'robot_links')
+        for ii = 1:numel(dataLocal.robot_links)
+            if isgraphics(dataLocal.robot_links(ii))
+                delete(dataLocal.robot_links(ii));
+            end
+        end
+    end
+    link_colors = lines(nNew);
+    dataLocal.robot_links = gobjects(1, nNew);
+    for i = 1:nNew
+        dataLocal.robot_links(i) = plot3(dataLocal.ax, nan, nan, nan, '-', 'LineWidth', 5, 'Color', link_colors(i,:));
+    end
+
+    % --- Joint controls ---
+    if isfield(dataLocal, 'sliders')
+        for ii = 1:numel(dataLocal.sliders)
+            if isgraphics(dataLocal.sliders(ii))
+                delete(dataLocal.sliders(ii));
+            end
+        end
+    end
+    if isfield(dataLocal, 'edits')
+        for ii = 1:numel(dataLocal.edits)
+            if isgraphics(dataLocal.edits(ii))
+                delete(dataLocal.edits(ii));
+            end
+        end
+    end
+    if isfield(dataLocal, 'labels')
+        for ii = 1:numel(dataLocal.labels)
+            if isgraphics(dataLocal.labels(ii))
+                delete(dataLocal.labels(ii));
+            end
+        end
+    end
+
+    dataLocal.sliders = gobjects(1, nNew);
+    dataLocal.edits = gobjects(1, nNew);
+    dataLocal.labels = gobjects(1, nNew);
+
+    % Ensure q0 matches n
+    if ~isfield(dataLocal, 'q0') || numel(dataLocal.q0) ~= nNew
+        dataLocal.q0 = 0.5*(dataLocal.q_min + dataLocal.q_max);
+    end
+
+    for i = 1:nNew
+        y = 0.83 - (i-1)*(0.155 * 6 / max(6, nNew));
+        dataLocal.labels(i) = uicontrol('Parent', dataLocal.panelJoints, 'Style', 'text', 'Units', 'normalized', ...
+            'Position', [0.05 y 0.20 0.12], 'String', sprintf('q%d [deg]', i), 'HorizontalAlignment', 'left');
+
+        dataLocal.sliders(i) = uicontrol('Parent', dataLocal.panelJoints, 'Style', 'slider', 'Units', 'normalized', ...
+            'Position', [0.26 y 0.52 0.12], 'Min', dataLocal.q_min(i), 'Max', dataLocal.q_max(i), 'Value', dataLocal.q0(i));
+
+        dataLocal.edits(i) = uicontrol('Parent', dataLocal.panelJoints, 'Style', 'edit', 'Units', 'normalized', ...
+            'Position', [0.80 y 0.17 0.12], 'String', sprintf('%.1f', rad2deg(dataLocal.q0(i))));
+
+        dataLocal.sliders(i).Callback = @(src,~) onSliderChanged(src, i);
+        dataLocal.edits(i).Callback = @(src,~) onEditChanged(src, i);
+    end
+
+    % If the diagnostics bar has the wrong length, recreate it lazily in updateScene.
+    % Keep the separate velocity figure in sync with joint count.
+    [dataLocal.figVel, dataLocal.velAx, dataLocal.velBar, dataLocal.velTable, dataLocal.velText] = create_velocity_figure(figLocal, nNew);
+    guidata(figLocal, dataLocal);
+end
+
+function onExport(src)
+    figLocal = ancestor(src, 'figure');
+    dataLocal = guidata(figLocal);
+
+    [file, path] = uiputfile('*.png', 'Export main figure as...', 'vis_sing_map.png');
+    if isequal(file, 0)
+        return;
+    end
+
+    basePng = fullfile(path, file);
+    [~, baseName, ~] = fileparts(basePng);
+
+    % Compute current kinematics
+    q = get_current_q(dataLocal);
+    [T_all, o_all, z_all] = fk_chain_dh(dataLocal.a, dataLocal.alpha, dataLocal.d, q + dataLocal.theta_offset);
+    ee = T_all{end}(1:3,4).';
+    J = jacobian_geometric_from_fk(o_all, z_all);
+    s = svd(J);
+    Jv = J(1:3, :);
+    infl = vecnorm(Jv, 2, 1);
+
+    % Export main figure
+    exportedMain = false;
+    % 1) Best effort: export UI-containing figure via exportapp (newer MATLAB)
+    if exist('exportapp', 'file') == 2
+        try
+            exportapp(figLocal, basePng);
+            exportedMain = true;
+        catch
+        end
+    end
+    % 2) Next best: export the 3D axes only (robust, excludes UI controls)
+    if ~exportedMain && exist('exportgraphics', 'file') == 2
+        try
+            exportgraphics(dataLocal.ax, basePng, 'Resolution', 300);
+            exportedMain = true;
+        catch
+        end
+    end
+    % 3) Last resort: rasterize via getframe
+    if ~exportedMain
+        try
+            fr = getframe(figLocal);
+            imwrite(fr.cdata, basePng);
+            exportedMain = true;
+        catch
+        end
+    end
+    if ~exportedMain
+        errordlg('Export failed on this MATLAB version.', 'Export');
+        return;
+    end
+
+    % Export joint velocity influence figure
+    try
+        f2 = figure('Visible', 'off', 'Color', 'w', 'Name', 'Joint velocity influence');
+        ax2 = axes('Parent', f2);
+        grid(ax2, 'on');
+        bar(ax2, 1:numel(infl), infl, 'FaceColor', [0.20 0.45 0.85], 'EdgeColor', 'none');
+        title(ax2, '||J_v(:,i)|| for unit joint rate');
+        xlabel(ax2, 'joint i');
+        ylabel(ax2, 'm/s per rad/s');
+        out2 = fullfile(path, [baseName '_joint_velocity.png']);
+        if exist('exportgraphics', 'file') == 2
+            exportgraphics(f2, out2, 'Resolution', 300);
+        else
+            saveas(f2, out2);
+        end
+        close(f2);
+    catch
+        % ignore
+    end
+
+    % Export singular values figure
+    try
+        f3 = figure('Visible', 'off', 'Color', 'w', 'Name', 'Singular values');
+        ax3 = axes('Parent', f3);
+        grid(ax3, 'on');
+        set(ax3, 'YScale', 'log');
+        ss = max(s(:).', 1e-12);
+        bar(ax3, 1:numel(ss), ss, 'FaceColor', [0.25 0.25 0.25], 'EdgeColor', 'none');
+        title(ax3, 'Singular values of J');
+        xlabel(ax3, 'i');
+        ylabel(ax3, '\sigma');
+        out3 = fullfile(path, [baseName '_singular_values.png']);
+        if exist('exportgraphics', 'file') == 2
+            exportgraphics(f3, out3, 'Resolution', 300);
+        else
+            saveas(f3, out3);
+        end
+        close(f3);
+    catch
+        % ignore
+    end
+
+    % Export MAT data bundle
+    try
+        exportData = struct();
+        exportData.timestamp = datestr(now);
+        exportData.a = dataLocal.a;
+        exportData.alpha = dataLocal.alpha;
+        exportData.d = dataLocal.d;
+        exportData.theta_offset = dataLocal.theta_offset;
+        exportData.q_min = dataLocal.q_min;
+        exportData.q_max = dataLocal.q_max;
+        exportData.q = q;
+        exportData.ee = ee;
+        exportData.J = J;
+        exportData.singular_values = s;
+        exportData.sigma_min = min(s);
+        exportData.condJ = cond(J);
+        exportData.influence_norms = infl;
+        exportData.sing_threshold = dataLocal.sing_threshold;
+        exportData.cloud_points = size(dataLocal.P_sing, 1);
+
+        save(fullfile(path, [baseName '_data.mat']), 'exportData');
+    catch
+        % ignore
+    end
+end
+
+function q = get_current_q(dataLocal)
+    n = numel(dataLocal.sliders);
+    q = zeros(1, n);
+    for ii = 1:n
+        q(ii) = dataLocal.sliders(ii).Value;
+    end
+end
+
+function [figVel, velAx, velBar, velTable, velText] = create_velocity_figure(figMain, n)
+%CREATE_VELOCITY_FIGURE Create or reuse a live-linked joint velocity figure.
+
+dataMain = guidata(figMain);
+figVel = [];
+velAx = [];
+velBar = [];
+velTable = [];
+velText = [];
+
+if isfield(dataMain, 'figVel') && ~isempty(dataMain.figVel) && isgraphics(dataMain.figVel)
+    figVel = dataMain.figVel;
+end
+
+% Create if needed
+if isempty(figVel)
+    figVel = figure('Name', 'Joint Velocity (linked)', 'NumberTitle', 'off', 'Color', 'w');
+end
+
+% Preserve existing qdot values if possible
+qdotOld = [];
+if isfield(dataMain, 'velTable') && ~isempty(dataMain.velTable) && isgraphics(dataMain.velTable)
+    try
+        td = dataMain.velTable.Data;
+        if iscell(td)
+            td = cell2mat(td);
+        end
+        if size(td,2) == 1
+            qdotOld = td(:);
+        end
+    catch
+    end
+end
+
+% Clear and rebuild contents (simple and robust)
+clf(figVel);
+
+velAx = axes('Parent', figVel, 'Units', 'normalized', 'Position', [0.10 0.40 0.85 0.55]);
+grid(velAx, 'on');
+title(velAx, '||J_v(:,i)|| for unit joint rate');
+xlabel(velAx, 'joint i');
+ylabel(velAx, 'm/s per rad/s');
+velBar = bar(velAx, 1:n, zeros(1,n), 'FaceColor', [0.20 0.45 0.85], 'EdgeColor', 'none');
+velAx.XLim = [0.5 max(1.5, n+0.5)];
+
+qdot = zeros(n,1);
+if ~isempty(qdotOld)
+    qdot(1:min(n, numel(qdotOld))) = qdotOld(1:min(n, numel(qdotOld)));
+end
+
+velTable = uitable('Parent', figVel, 'Units', 'normalized', 'Position', [0.10 0.05 0.55 0.28], ...
+    'Data', qdot, ...
+    'ColumnName', {'qdot [rad/s]'}, ...
+    'ColumnEditable', true, ...
+    'RowName', arrayfun(@(i) sprintf('qdot%d', i), 1:n, 'UniformOutput', false));
+velTable.UserData = figMain;
+velTable.CellEditCallback = @(src,~) onVelQdotEdited(src);
+
+velText = uicontrol('Parent', figVel, 'Style', 'text', 'Units', 'normalized', ...
+    'Position', [0.67 0.05 0.28 0.28], ...
+    'String', 'v = [0 0 0] m/s\n|v| = 0\nomega = [0 0 0] rad/s\n|omega| = 0', ...
+    'HorizontalAlignment', 'left');
+
+% Store back to main guidata so updateScene can drive it
+dataMain.figVel = figVel;
+dataMain.velAx = velAx;
+dataMain.velBar = velBar;
+dataMain.velTable = velTable;
+dataMain.velText = velText;
+guidata(figMain, dataMain);
+end
+
+function onVelQdotEdited(src)
+% Update main scene when qdot table changes
+figMain = [];
+try
+    figMain = src.UserData;
+catch
+end
+if ~isempty(figMain) && isgraphics(figMain)
+    updateScene(figMain);
+end
 end
 
 function onResetGeometry(src)
@@ -582,9 +978,15 @@ function onResetGeometry(src)
 
     % Update table
     dataLocal.geom_table.Data = [a_new(:), rad2deg(alpha_new(:)), d_new(:), rad2deg(theta0_new(:)), rad2deg(qmin_new(:)), rad2deg(qmax_new(:))];
+    dataLocal.geom_table.RowName = arrayfun(@(i) sprintf('j%d', i), 1:numel(a_new), 'UniformOutput', false);
+
+    % Rebuild slider UI and robot link objects for the default joint count
+    guidata(figLocal, dataLocal);
+    rebuildJointAndRobotUI(figLocal, numel(a_new));
+    dataLocal = guidata(figLocal);
 
     % Update slider ranges + set to home
-    for ii = 1:6
+    for ii = 1:numel(dataLocal.sliders)
         dataLocal.sliders(ii).Min = dataLocal.q_min(ii);
         dataLocal.sliders(ii).Max = dataLocal.q_max(ii);
         dataLocal.sliders(ii).Value = dataLocal.q0(ii);
@@ -652,13 +1054,14 @@ function recomputeCloud(figLocal)
     cleanup = onCleanup(@() safe_close_waitbar(wb));
 
     N = dataLocal.N_samples;
-    Q = zeros(N, 6);
+    n = numel(dataLocal.q_min);
+    Q = zeros(N, n);
     P = zeros(N, 3);
     SigmaMin = zeros(N, 1);
 
     tStart = tic;
     for k = 1:N
-        q = dataLocal.q_min + rand(1,6).*(dataLocal.q_max - dataLocal.q_min);
+        q = dataLocal.q_min + rand(1,n).*(dataLocal.q_max - dataLocal.q_min);
         Q(k,:) = q;
 
         [T_all, o_all, z_all] = fk_chain_dh(dataLocal.a, dataLocal.alpha, dataLocal.d, q + dataLocal.theta_offset);
@@ -700,6 +1103,7 @@ presets = struct('name', {}, 'q', {});
 
 qmin = q_min(:).';
 qmax = q_max(:).';
+nj = numel(qmin);
 
 % Helpers
 clip = @(q) min(max(q, qmin), qmax);
@@ -708,27 +1112,33 @@ qlo = qmin + 0.05*(qmax - qmin);
 qhi = qmax - 0.05*(qmax - qmin);
 
 presets(end+1) = struct('name', 'Home', 'q', clip(q0));
-presets(end+1) = struct('name', 'All zeros', 'q', clip(zeros(1,6)));
+presets(end+1) = struct('name', 'All zeros', 'q', clip(zeros(1,nj)));
 presets(end+1) = struct('name', 'Mid-range', 'q', clip(qmid));
 
 % Classic teaching poses (still useful even if geometry differs)
-q_wrist = clip(q0);
-q_wrist(5) = 0;
-presets(end+1) = struct('name', 'Wrist singular (q5=0)', 'q', q_wrist);
+if nj >= 5
+    q_wrist = clip(q0);
+    q_wrist(5) = 0;
+    presets(end+1) = struct('name', 'Wrist singular (q5=0)', 'q', q_wrist);
+end
 
-q_elbow = clip(q0);
-q_elbow(2) = 0;
-q_elbow(3) = 0;
-presets(end+1) = struct('name', 'Elbow stretched (q2=0,q3=0)', 'q', q_elbow);
+if nj >= 3
+    q_elbow = clip(q0);
+    q_elbow(2) = 0;
+    q_elbow(3) = 0;
+    presets(end+1) = struct('name', 'Elbow stretched (q2=0,q3=0)', 'q', q_elbow);
 
-q_fold = clip(q0);
-q_fold(2) = -pi/2;
-q_fold(3) = pi/2;
-presets(end+1) = struct('name', 'Folded elbow (q2=-90,q3=90)', 'q', q_fold);
+    q_fold = clip(q0);
+    q_fold(2) = -pi/2;
+    q_fold(3) = pi/2;
+    presets(end+1) = struct('name', 'Folded elbow (q2=-90,q3=90)', 'q', q_fold);
+end
 
-q_sh = clip(q0);
-q_sh(1) = pi/2;
-presets(end+1) = struct('name', 'Shoulder twist (q1=90)', 'q', q_sh);
+if nj >= 1
+    q_sh = clip(q0);
+    q_sh(1) = pi/2;
+    presets(end+1) = struct('name', 'Shoulder twist (q1=90)', 'q', q_sh);
+end
 
 % Near limits (students often want to see what happens)
 presets(end+1) = struct('name', 'Near lower limits', 'q', clip(qlo));
@@ -736,7 +1146,7 @@ presets(end+1) = struct('name', 'Near upper limits', 'q', clip(qhi));
 
 % Alternating pose
 alt = qmid;
-for i = 1:6
+for i = 1:nj
     r = 0.35*(qmax(i) - qmin(i));
     if mod(i,2)==0
         alt(i) = qmid(i) + r;
@@ -758,8 +1168,9 @@ function updateScene(figLocal)
     end
 
     % Read q from sliders
-    q = zeros(1,6);
-    for ii = 1:6
+    n = numel(dataLocal.sliders);
+    q = zeros(1,n);
+    for ii = 1:n
         q(ii) = dataLocal.sliders(ii).Value;
     end
 
@@ -767,13 +1178,13 @@ function updateScene(figLocal)
     [T_all, o_all, ~] = fk_chain_dh(dataLocal.a, dataLocal.alpha, dataLocal.d, q + dataLocal.theta_offset);
 
     % Joint positions
-    pts = zeros(7,3);
-    for j = 1:7
+    pts = zeros(n+1,3);
+    for j = 1:(n+1)
         pts(j,:) = o_all{j}.';
     end
 
     % Update robot plot
-    for i = 1:6
+    for i = 1:n
         dataLocal.robot_links(i).XData = [pts(i,1) pts(i+1,1)];
         dataLocal.robot_links(i).YData = [pts(i,2) pts(i+1,2)];
         dataLocal.robot_links(i).ZData = [pts(i,3) pts(i+1,3)];
@@ -854,21 +1265,78 @@ function updateScene(figLocal)
     sigmaMin = min(s);
     condJ = cond(J);
 
+    % Live-linked velocity figure: influence + response for chosen qdot
+    try
+        if isfield(dataLocal, 'velBar') && isgraphics(dataLocal.velBar)
+            Jv = J(1:3,:);
+            infl = vecnorm(Jv, 2, 1);
+            if numel(dataLocal.velBar.YData) ~= numel(infl)
+                % Rebuild the velocity figure if joint count changed
+                guidata(figLocal, dataLocal);
+                rebuildJointAndRobotUI(figLocal, size(J,2));
+                dataLocal = guidata(figLocal);
+            else
+                dataLocal.velBar.YData = infl;
+                if isfield(dataLocal, 'velAx') && isgraphics(dataLocal.velAx)
+                    dataLocal.velAx.XLim = [0.5 max(1.5, numel(infl)+0.5)];
+                end
+            end
+
+            if isfield(dataLocal, 'velTable') && isgraphics(dataLocal.velTable) && isfield(dataLocal, 'velText') && isgraphics(dataLocal.velText)
+                qdot = dataLocal.velTable.Data;
+                if iscell(qdot)
+                    qdot = cell2mat(qdot);
+                end
+                qdot = qdot(:);
+                if numel(qdot) == size(J,2)
+                    v = J(1:3,:) * qdot;
+                    omega = J(4:6,:) * qdot;
+                    dataLocal.velText.String = sprintf('v = [%.3g  %.3g  %.3g] m/s\n|v| = %.3g\nomega = [%.3g  %.3g  %.3g] rad/s\n|omega| = %.3g', ...
+                        v(1), v(2), v(3), norm(v), omega(1), omega(2), omega(3), norm(omega));
+                end
+            end
+        end
+    catch
+        % keep main UI responsive even if the linked figure is closed
+    end
+
     % Update singular value plot (log scale)
     ss = max(s(:).', 1e-12);
     if isfield(dataLocal, 'barSing') && isgraphics(dataLocal.barSing)
-        dataLocal.barSing.YData = ss;
+        try
+            if numel(dataLocal.barSing.YData) ~= numel(ss)
+                cla(dataLocal.diagAx);
+                grid(dataLocal.diagAx, 'on');
+                title(dataLocal.diagAx, 'Singular values of J');
+                xlabel(dataLocal.diagAx, 'i');
+                ylabel(dataLocal.diagAx, '\sigma');
+                set(dataLocal.diagAx, 'YScale', 'log');
+                dataLocal.barSing = bar(dataLocal.diagAx, 1:numel(ss), ss);
+                dataLocal.barSing.FaceColor = [0.25 0.25 0.25];
+                dataLocal.barSing.EdgeColor = 'none';
+            else
+                dataLocal.barSing.YData = ss;
+            end
+        catch
+            % fallback
+            dataLocal.barSing.YData = ss;
+        end
         ymin = max(min(ss) * 0.5, 1e-6);
         ymax = max(max(ss) * 2.0, 1e-3);
         dataLocal.diagAx.YLim = [ymin ymax];
+        dataLocal.diagAx.XLim = [0.5 max(1.5, numel(ss)+0.5)];
     end
 
     % Teaching aid: separate arm/wrist 3x3 blocks (typical for 6R with wrist)
     % These are not perfect for every robot, but useful for intuition.
-    Jarm = J(1:3, 1:3);
-    Jwrist = J(4:6, 4:6);
-    sigmaArm = min(svd(Jarm));
-    sigmaWrist = min(svd(Jwrist));
+    sigmaArm = NaN;
+    sigmaWrist = NaN;
+    if size(J,2) == 6
+        Jarm = J(1:3, 1:3);
+        Jwrist = J(4:6, 4:6);
+        sigmaArm = min(svd(Jarm));
+        sigmaWrist = min(svd(Jwrist));
+    end
 
     % Velocity ellipsoid (optional): v = Jv qdot, ||qdot||=1
     if dataLocal.cb_show_ell.Value == 1
@@ -916,24 +1384,32 @@ function updateScene(figLocal)
     sigmaChar = char(963); % 'σ'
 
     th = dataLocal.sing_threshold;
-    isArm = sigmaArm < th;
-    isWrist = sigmaWrist < th;
-    if isArm && isWrist
-        cls = 'arm + wrist singularity';
-    elseif isArm
-        cls = 'arm singularity';
-    elseif isWrist
-        cls = 'wrist singularity';
-    else
-        cls = 'regular';
-    end
+    cls = 'regular';
+    if size(J,2) == 6
+        isArm = sigmaArm < th;
+        isWrist = sigmaWrist < th;
+        if isArm && isWrist
+            cls = 'arm + wrist singularity';
+        elseif isArm
+            cls = 'arm singularity';
+        elseif isWrist
+            cls = 'wrist singularity';
+        else
+            cls = 'regular';
+        end
 
-    dataLocal.infoText.String = sprintf(['Pose: p=[%.3f %.3f %.3f] m\n', ...
-        'J:  %s_min=%.2e, cond(J)=%.2e  (%s)\n', ...
-        'Arm(1:3): %s_min=%.2e   Wrist(4:6): %s_min=%.2e\n', ...
-        'Cloud: %d pts  (Highlight: %d)'], ...
-        ee(1), ee(2), ee(3), sigmaChar, sigmaMin, condJ, cls, ...
-        sigmaChar, sigmaArm, sigmaChar, sigmaWrist, size(dataLocal.P_sing,1), K);
+        dataLocal.infoText.String = sprintf(['Pose: p=[%.3f %.3f %.3f] m\n', ...
+            'J:  %s_min=%.2e, cond(J)=%.2e  (%s)\n', ...
+            'Arm(1:3): %s_min=%.2e   Wrist(4:6): %s_min=%.2e\n', ...
+            'Cloud: %d pts  (Highlight: %d)'], ...
+            ee(1), ee(2), ee(3), sigmaChar, sigmaMin, condJ, cls, ...
+            sigmaChar, sigmaArm, sigmaChar, sigmaWrist, size(dataLocal.P_sing,1), K);
+    else
+        dataLocal.infoText.String = sprintf(['Pose: p=[%.3f %.3f %.3f] m\n', ...
+            'J:  %s_min=%.2e, cond(J)=%.2e\n', ...
+            'Cloud: %d pts  (Highlight: %d)'], ...
+            ee(1), ee(2), ee(3), sigmaChar, sigmaMin, condJ, size(dataLocal.P_sing,1), K);
+    end
 
     guidata(figLocal, dataLocal);
     drawnow limitrate;

@@ -1,0 +1,662 @@
+Seminar 3 – Singularitäten in der Roboterkinematik
+===============================================
+
+Hinweis: Dieses Dokument ist als wortwörtliches Transkript gedacht,
+das du als Dozent:in während des Seminars sinngemäß vorlesen kannst.
+Die Reihenfolge orientiert sich an `seminar_3.m`.
+
+Wichtig: Wie in Seminar 1 und Seminar 2 verwenden wir ausschließlich
+MATLAB-Bordmittel (Built-ins). Zusätzlich sind die Hilfsfunktionen aus
+Seminar 1 und 2 am Ende von `seminar_3.m` als lokale Funktionen eingebettet,
+damit alles in einer Datei lauffähig bleibt.
+
+------------------------------------------------------------
+Einleitung
+------------------------------------------------------------
+
+"Willkommen zum dritten Seminar. Heute geht es um Singularitäten in der
+Roboterkinematik.
+
+Wir werden dafür die Jacobi-Matrix nicht nur als Rechenwerkzeug benutzen,
+sondern als ein echtes Diagnoseinstrument:
+
+- Sie sagt uns, welche kartesischen Geschwindigkeiten wir mit gegebenen
+  Gelenkgeschwindigkeiten überhaupt erzeugen können.
+- Sie zeigt, wann ein Roboter eine Bewegungsrichtung verliert.
+- Und sie erklärt, warum inverse Kinematik (IK) in bestimmten Posen
+  numerisch instabil wird.
+
+Das Seminar ist in sechs Teile gegliedert:
+
+1) Grundidee: Singularität = Rangverlust der Jacobi.
+2) Planarer 2R-Roboter: det(J), Rangverlust, anschauliche Beispiele.
+3) Konditionszahl, Manipulierbarkeit und Geschwindigkeits-Ellipse.
+4) 3D-Serienkette: translatorische Jacobi, Rang und Singulärwerte.
+5) IK nahe Singularitäten: Pseudoinverse vs. Damped Least Squares (DLS).
+6) Aufgaben zum Vertiefen.
+
+Wir starten bewusst mit dem einfachsten Beispiel, weil Singularitäten dort
+am leichtesten zu sehen und zu fühlen sind." 
+
+
+------------------------------------------------------------
+0. Voraussetzungen im Skript
+------------------------------------------------------------
+
+"Ganz am Anfang rufen wir `clearvars` und `clc` auf. Das räumt die
+Arbeitsumgebung auf und macht die Ausgabe übersichtlich.
+
+Dann drucken wir eine Kopfzeile:
+
+  === 3. Seminar: Singularitäten in der Roboterkinematik ===
+
+Und wir erinnern uns an einen organisatorischen Punkt: MATLAB exportiert
+lokale Funktionen in Skripten nicht automatisch. Darum liegen die
+benötigten Funktionen aus Seminar 1 und 2 am Dateiende als lokale
+Funktionen eingebettet.
+
+Das ist didaktisch praktisch: Alles ist in einer Datei sichtbar und wir
+sehen direkt, welche Bausteine wir wiederverwenden." 
+
+
+------------------------------------------------------------
+1. Grundidee: Singularität = Rangverlust der Jacobi
+------------------------------------------------------------
+
+"Jetzt kommt die zentrale Definition dieses Seminars.
+
+Eine Singularität ist – vereinfacht gesagt – eine Konfiguration, in der
+die Jacobi-Matrix J Rang verliert.
+
+Was heißt das konkret?
+
+Wir kennen die differentielle Kinematik:
+
+  v = J(q) * q_dot
+
+Dabei ist `q_dot` die Gelenkgeschwindigkeit und `v` die kartesische
+Endeffektor-Geschwindigkeit.
+
+Wenn J vollen Rang hat, dann kann J in einem gewissen Sinne alle
+Richtungen im Arbeitsraum ansteuern – zumindest lokal.
+
+Wenn J Rang verliert, dann passiert etwas Entscheidendes:
+
+- Es gibt Richtungen im Arbeitsraum, die wir nicht mehr erzeugen können,
+  egal wie wir die Gelenke antreiben.
+
+Und die Umkehrseite:
+
+- Wenn wir dennoch versuchen, eine Bewegung genau in so einer schlechten
+  Richtung zu machen, dann verlangt die IK extrem große
+  Gelenkgeschwindigkeiten bzw. Gelenkschritte.
+
+Das ist der Grund, warum wir später sehen werden: nahe Singularitäten
+wird IK numerisch "zappelig" oder sogar instabil." 
+
+
+------------------------------------------------------------
+2. Beispiel 1: Planarer 2R-Roboter und seine Singularitäten
+------------------------------------------------------------
+
+"Jetzt gehen wir in Abschnitt 2. Wir betrachten einen planaren 2R-Arm.
+Der lebt im XY, hat zwei Drehgelenke und zwei Längen:
+
+  L1 = 0.40 m
+  L2 = 0.30 m
+
+Und jetzt kommt der wichtigste analytische Fakt für den 2R-Planararm:
+
+  det(J) = L1 * L2 * sin(q2)
+
+Das ist ein echter Schlüssel:
+
+- Det(J) ist proportional zu sin(q2).
+- Also wird det(J) genau dann Null, wenn sin(q2)=0 ist.
+
+Das sind die Winkel:
+
+  q2 = 0°  oder  q2 = 180°
+
+Und geometrisch bedeutet das:
+
+- Arm vollständig gestreckt (q2 = 0°)
+- oder komplett gefaltet in einer Linie (q2 = 180°)
+
+In beiden Fällen liegen die beiden Links auf einer Linie, und dann
+können wir nicht mehr in alle XY-Richtungen gleichzeitig "drücken".
+
+Im Code machen wir Folgendes:
+
+- Wir setzen q1 fest, z.B. 20°.
+- Wir variieren q2 von -170° bis +170°.
+
+Für jedes q2 berechnen wir J mit `jacobian_2r_planar(...)`.
+Dann berechnen wir drei Kennzahlen:
+
+1) det(J)
+2) cond(J)
+3) Manipulierbarkeit w, hier als Produkt der Singulärwerte von J.
+
+Warum diese drei?
+
+- det(J) sagt uns bei einer 2x2-Jacobi sehr direkt: ist sie invertierbar
+  oder nicht.
+- cond(J) ist eine numerische Diagnose: große Konditionszahl bedeutet
+  schlecht konditioniert, also numerisch empfindlich.
+- Die Manipulierbarkeit w fasst die "Volumen-Skalierung" zusammen:
+  Wenn eine Singulärzahl gegen Null geht, geht w gegen Null.
+
+Wichtig: In Seminar 1 und 2 haben wir Jacobis schon als Beziehung
+zwischen q_dot und v gesehen. Neu ist jetzt, dass wir daraus gezielt
+Singularitätsmaße machen: det, Konditionszahl und Singulärwerte." 
+
+
+------------------------------------------------------------
+2.0 Plot: det(J), cond(J), w über q2
+------------------------------------------------------------
+
+"Wir plotten das Ergebnis in einer Figur mit drei Subplots.
+
+- Oben: det(J) als Funktion von q2.
+  Wir erwarten Nullstellen bei q2=0° und q2=180° (im Plot nahe ±180°).
+
+- In der Mitte: die Konditionszahl. Die plotten wir auf einer
+  logarithmischen y-Achse, weil sie nahe der Singularität sehr groß
+  werden kann.
+
+- Unten: die Manipulierbarkeit w.
+
+Und jetzt die Interpretation:
+
+Wenn q2 sich Richtung 0° bewegt, sehen wir:
+
+- det(J) -> 0
+- cond(J) -> sehr groß
+- w -> 0
+
+Das ist genau das Bild einer Singularität: Rangverlust bzw. eine
+Singulärzahl wird extrem klein." 
+
+
+------------------------------------------------------------
+2.1 Visualisierung: gestreckt vs. nicht-gestreckt
+------------------------------------------------------------
+
+"Als nächstes wollen wir nicht nur Zahlen sehen, sondern Geometrie.
+
+Wir nehmen zwei Konfigurationen:
+
+- q2 = 0°  (singulär)
+- q2 = 60° (nicht singulär)
+
+Und wir zeichnen den Arm als einfachen Linienzug im XY:
+
+  p0 -> p1 -> p2
+
+Wichtig ist hier die Botschaft:
+
+In der gestreckten Pose ist der Arm wie ein lineares Stab-System.
+Man kann zwar noch entlang einer Richtung gut Geschwindigkeit erzeugen,
+aber die orthogonale Richtung wird "schwach". Genau das wird später
+in der Geschwindigkeits-Ellipse sichtbar." 
+
+
+------------------------------------------------------------
+3. Geschwindigkeitsabbildung: Geschwindigkeits-Ellipse (2D)
+------------------------------------------------------------
+
+"Jetzt kommt Abschnitt 3: die Geschwindigkeits-Ellipse.
+
+Das ist didaktisch einer der schönsten Teile, weil man Singularitäten
+wirklich sehen kann.
+
+Die Idee ist:
+
+- Wir betrachten alle Gelenkgeschwindigkeiten q_dot mit Norm 1.
+  Im Gelenkraum ist das ein Einheitskreis.
+
+- Wir bilden diese q_dot mit v = J(q) * q_dot in den Arbeitsraum ab.
+
+- Das Bild eines Kreises unter einer linearen Abbildung ist eine Ellipse.
+
+Und jetzt die Singularitätsaussage:
+
+- In einer Singularität kollabiert diese Ellipse:
+  Sie wird zu einer Linie (oder im Extremfall zu einem Punkt).
+
+Das ist die direkte geometrische Bedeutung von "Rangverlust".
+
+Im Code passiert Folgendes:
+
+- Wir berechnen J_sing und J_ok.
+- Wir sampeln N=200 Punkte auf dem Einheitskreis:
+
+    qd = [cos(theta); sin(theta)]
+
+- Dann berechnen wir v_sing = J_sing * qd und v_ok = J_ok * qd.
+
+Und beides plotten wir in v_x/v_y.
+
+Interpretation:
+
+- In der nicht-singulären Pose sehen wir eine schöne Ellipse.
+- In der singulären Pose sehen wir, dass die Ellipse praktisch
+  zusammenfällt: es bleibt eine Richtung übrig.
+
+Didaktischer Zusatzpunkt (neu gegenüber Seminar 2):
+
+Die Achsenlängen der Ellipse hängen direkt mit den Singulärwerten von J
+zusammen:
+
+- große Singulärzahl -> lange Ellipsenachse (starke Richtung)
+- kleine Singulärzahl -> kurze Ellipsenachse (schwache Richtung)
+
+Wenn eine Singulärzahl gegen Null geht, verschwindet eine Achse.
+Genau das ist die Singularität." 
+
+
+------------------------------------------------------------
+4. Beispiel 2: 3D-Serienkette – Rangverlust einer translatorischen Jacobi
+------------------------------------------------------------
+
+"Jetzt wechseln wir zu einem 3D-Beispiel: eine 3DOF-RRR-Kette.
+
+Wichtig: Wir betrachten hier nur die translatorische Jacobi, also nur
+Position. Damit ist Jv eine 3x3-Matrix.
+
+Warum machen wir das so?
+
+- Für das Lehrziel 'Singularität als Rangverlust' reicht es, auf die
+  Position zu schauen.
+- Und wir können die Jacobi numerisch approximieren, ohne neue Toolbox.
+
+Die Parameter sind:
+
+  L2_3D = 0.20 m
+  L3_3D = 0.15 m
+
+Wir vergleichen zwei Konfigurationen:
+
+- q_straight = [0, 0, 0]  ("gerade")
+- q_bent     = [10, -40, 30] ("gebeugt")
+
+Dann rechnen wir:
+
+- Vorwärtskinematik mit `fk_3d_rrr` -> Endeffektor-Transformation T.
+- translatorische Jacobi Jv über `numerical_jacobian_fk3d`.
+
+Jetzt kommt der neue Denkpunkt:
+
+Für 3x3-Matrizen ist det(J) zwar möglich, aber für Diagnose und
+Numerik ist es oft besser, direkt über Singulärwerte und Rang zu gehen:
+
+- `svd(Jv)` liefert drei Singulärwerte.
+- `rank(Jv)` sagt uns, ob wir volle Beweglichkeit in 3D haben.
+
+Wir drucken dann:
+
+- rank(Jv)
+- min σ (kleinste Singulärzahl)
+- w = Produkt der Singulärwerte
+
+Interpretation:
+
+- Wenn min σ sehr klein ist, haben wir eine Richtung, in der der Roboter
+  kaum translatorische Geschwindigkeit erzeugen kann.
+- Wenn rank < 3, ist tatsächlich eine translatorische Richtung verloren.
+
+Zum Schluss visualisieren wir beide Transformationen mit
+`visualize_transformation`, damit man die räumliche Pose sieht." 
+
+
+------------------------------------------------------------
+5. IK nahe Singularitäten: Pseudoinverse vs. DLS
+------------------------------------------------------------
+
+"Jetzt kommt Abschnitt 5. Hier verbinden wir Singularitäten mit einem
+praktischen Problem: inverse Kinematik.
+
+Wir machen IK für den 2R-Planararm (nur Position):
+
+  p(q) = [x(q); y(q)]
+
+Der Fehler ist:
+
+  e = p_target - p_current
+
+Und dann gibt es zwei bekannte Update-Regeln:
+
+1) Pseudoinverse:
+
+  dq = J^+ * e
+
+2) Damped Least Squares (DLS):
+
+  dq = J^T * (J*J^T + λ^2 I)^(-1) * e
+
+Warum ist Pseudoinverse nahe Singularität problematisch?
+
+Weil J schlecht konditioniert ist. Das bedeutet:
+
+- kleine Mess-/Rechenfehler werden riesig verstärkt
+- und das Invertieren (oder die Pseudoinverse) produziert sehr große dq
+
+Das sieht man im Code sehr direkt:
+
+- Startkonfiguration ist absichtlich nahe an q2=0°:
+
+    q0 = [20°; 1°]
+
+- Der Zielpunkt liegt leicht "in der schlechten Richtung":
+
+    ptarget = [0.60; 0.05]
+
+Dann iterieren wir 8 Schritte.
+
+Im Pseudoinverse-Fall drucken wir pro Iteration:
+
+- ||e|| (Endeffektorfehler)
+- ||dq|| (Schrittgröße)
+- q in Grad
+
+Und die Erwartung ist: ||dq|| kann sehr groß werden, obwohl der Fehler
+nur moderat ist.
+
+Dann machen wir dasselbe mit DLS.
+
+Hier ist der zentrale Lehrpunkt:
+
+DLS ist wie ein "weicher" Inverser. Durch λ wird das Problem
+regularisiert. Statt eine schlecht konditionierte Matrix hart zu
+invertieren, stabilisieren wir das System.
+
+Ganz wichtig im MATLAB-Code:
+
+Wir rechnen nicht explizit eine Inverse aus.
+Stattdessen lösen wir das lineare Gleichungssystem mit `\`:
+
+  (J*J.' + (lambda^2)*eye(2)) \ e
+
+Das ist numerisch stabiler als `inv(...) * e`.
+
+Interpretation von λ:
+
+- kleines λ -> näher an der Pseudoinverse, schneller, aber riskanter
+- großes λ -> stabiler, aber kleinere Schritte, tendenziell langsamer
+
+Das ist die klassische Stabilität-vs.-Geschwindigkeit-Abwägung." 
+
+
+------------------------------------------------------------
+6. Anwendungsaufgaben (ohne Musterlösung)
+------------------------------------------------------------
+
+"Zum Abschluss gibt es Aufgaben, die genau die Kernideen vertiefen.
+Ich gehe sie kurz didaktisch durch, ohne eine Musterlösung zu geben." 
+
+
+------------------------------------------------------------
+Aufgabe 1 — Analytische Singularitätsbedingung 2R
+------------------------------------------------------------
+
+"Die Aufgabe fordert, det(J) für den 2R-Planararm herzuleiten und zu
+zeigen:
+
+  det(J) = L1 * L2 * sin(q2)
+
+Dann soll man einen numerischen Check in MATLAB schreiben, det(J) über
+q2 plotten und die Nullstellen markieren.
+
+Didaktischer Zweck:
+
+- Der Zusammenhang zwischen Geometrie (gestreckt) und Algebra (det=0)
+  wird fest verankert." 
+
+
+------------------------------------------------------------
+Aufgabe 2 — Konditionszahl und 'Numerik-Warnsystem'
+------------------------------------------------------------
+
+"Hier soll eine Funktion entstehen, die für eine Konfiguration q eine
+Warnung ausgibt, wenn
+
+  cond(J) > 1e3
+
+Und man soll das testen:
+
+- einmal nahe q2 = 0°
+- einmal bei q2 = 60°
+
+Didaktischer Zweck:
+
+- Studierende lernen, dass 'Singularität' nicht nur ein harter Schalter
+  ist, sondern oft als 'nahe Singularität' über große Konditionszahlen
+  in der Praxis erkannt wird." 
+
+
+------------------------------------------------------------
+Aufgabe 3 — Geschwindigkeits-Ellipse automatisieren
+------------------------------------------------------------
+
+"Hier soll eine Funktion `velocityEllipse2D(J, N)` geschrieben werden.
+Sie soll:
+
+- N Punkte auf dem Einheitskreis im Gelenkraum sampeln
+- das resultierende Polygon im v-Raum zurückgeben
+
+Dann soll man die Ellipse für mehrere q2-Werte plotten und die Form
+interpretieren.
+
+Didaktischer Zweck:
+
+- Die Ellipse wird zum Werkzeug: nicht nur einmal plotten, sondern als
+  Funktion zum Wiederverwenden." 
+
+
+------------------------------------------------------------
+Aufgabe 4 — 3R-Kette: Singularitätssuche
+------------------------------------------------------------
+
+"Hier wechseln wir vom 2R-Beispiel wieder zu einer 3R-Kette.
+
+Die Aufgabe sagt: Verwende `jacobian_geometric` und untersuche die
+translatorische Jacobi Jv.
+
+Hinweis: In `seminar_3.m` selbst benutzen wir im Abschnitt 4 eine
+numerische Jacobi, um ohne zusätzliche Abhängigkeiten auszukommen.
+Die Aufgabe fordert aber explizit die geometrische Jacobi aus Seminar 2.
+
+Teilaufgaben:
+
+a) Erzeuge zufällige Konfigurationen und speichere die kleinste
+   Singulärzahl.
+
+b) Finde eine Konfiguration mit sehr kleiner Singulärzahl, also nahe
+   einer Singularität.
+
+c) Visualisiere diese Konfiguration (Basis→EE) mit
+   `visualize_transformation`.
+
+Didaktischer Zweck:
+
+- Singulärwerte als 'Suchkriterium' verwenden.
+- Singularität nicht nur theoretisch, sondern als gefundenes Beispiel." 
+
+
+------------------------------------------------------------
+Aufgabe 5 — DLS-Parameterstudie
+------------------------------------------------------------
+
+"Hier soll Abschnitt 5 wiederholt werden, aber mit verschiedenen
+λ-Werten, zum Beispiel:
+
+  0.01, 0.05, 0.1, 0.3
+
+Und man soll vergleichen:
+
+- Konvergenzgeschwindigkeit
+- Schrittgröße ||dq||
+- Endfehler ||e||
+
+Didaktischer Zweck:
+
+- λ ist kein 'magischer Parameter', sondern ein echter Regler.
+- Studierende sehen, wie Regularisierung Stabilität bringt, aber auch
+  Tempo kosten kann." 
+
+
+------------------------------------------------------------
+Lokale Funktionsdefinitionen (aus Seminar 1 und Seminar 2)
+------------------------------------------------------------
+
+"Am Ende von `seminar_3.m` stehen lokale Funktionen. Das sind keine neuen
+Inhalte, sondern wiederverwendete Bausteine aus Seminar 1 und Seminar 2.
+Ich gehe kurz durch, wofür jede Funktion im Seminar gebraucht wird." 
+
+
+------------------------------------------------------------
+`jacobian_2r_planar(L1, L2, q1, q2)`
+------------------------------------------------------------
+
+"Diese Funktion liefert die analytische 2x2-Jacobi für den 2R-Planararm
+im XY.
+
+Sie ist so definiert, dass gilt:
+
+  v = J(q) * q_dot
+
+mit v = [v_x; v_y].
+
+Im Kommentar steht auch der Lehrpunkt:
+
+- det(J) = L1*L2*sin(q2)
+- Rangverlust bei q2 = 0 oder π
+
+Das ist die Funktion, die wir in Abschnitt 2, 3 und 5 ständig benutzen." 
+
+
+------------------------------------------------------------
+`dh_transform(a, alpha, d, theta)`
+------------------------------------------------------------
+
+"Das ist die Standard-DH-Matrix aus Seminar 2.
+
+Sie nimmt die vier DH-Parameter und liefert eine 4x4-Transformation.
+Damit bauen wir in `fk_3d_rrr` eine Kette aus Einzeltransformationen." 
+
+
+------------------------------------------------------------
+`fk_3d_rrr(q, L2_3D, L3_3D)`
+------------------------------------------------------------
+
+"Diese Funktion ist die Vorwärtskinematik für eine 3DOF-RRR-Kette.
+
+Sie baut die Transformationen:
+
+- T01 mit alpha = pi/2
+- T12 mit a = L2_3D
+- T23 mit a = L3_3D
+
+und multipliziert sie zu T = T01*T12*T23.
+
+Sie wird in Abschnitt 4 benutzt, um Endeffektorpositionen und
+Transformationen zu bekommen." 
+
+
+------------------------------------------------------------
+`numerical_jacobian_fk3d(fk_handle, q, delta)`
+------------------------------------------------------------
+
+"Das ist eine numerische Approximation der translatorischen Jacobi.
+
+Sie ist bewusst einfach:
+
+- Wir berechnen p0 aus fk(q).
+- Dann stören wir jedes Gelenk einzeln um ein kleines delta.
+- Und wir approximieren die Ableitung über Vorwärtsdifferenzen:
+
+  J(:,i) = (p_pert - p0) / delta
+
+Das ist eine direkte Anwendung der Idee aus Seminar 2: Ableitung als
+Differenzenquotient.
+
+Im Seminar dient sie dazu, in Abschnitt 4 ohne zusätzliche Abhängigkeiten
+an Jv zu kommen." 
+
+
+------------------------------------------------------------
+`rotX`, `rotY`, `rotZ`, `transl`
+------------------------------------------------------------
+
+"Das sind die Basis-Transformationen aus Seminar 1:
+
+- Rotation um X, Y, Z
+- Translation
+
+Sie sind die Bausteine für Homogene Transformationen und werden indirekt
+in mehreren Visualisierungen und Umrechnungen verwendet." 
+
+
+------------------------------------------------------------
+`rpy2rotm(rpy)` und `rotm2rpy(T)`
+------------------------------------------------------------
+
+"Diese Funktionen konvertieren zwischen Roll-Pitch-Yaw und Rotation.
+
+Sie sind hier nicht das Hauptthema, aber sie gehören zu unserem
+Werkzeugkasten aus Seminar 1.
+
+In `rotm2rpy` gibt es außerdem eine Warnung für die kardanische Blockade
+(Gimbal Lock). Auch das ist eine Art Singularität – allerdings in der
+Orientierungsparametrisierung, nicht in der Roboter-Jacobi.
+Das kann man als kleinen Exkurs erwähnen." 
+
+
+------------------------------------------------------------
+`tprint(T, label)`
+------------------------------------------------------------
+
+"Das ist eine Ausgabe-Hilfe aus Seminar 1.
+
+Sie druckt Position und Rotationsmatrix einer 4x4-Transformation
+übersichtlich ins Command Window." 
+
+
+------------------------------------------------------------
+`visualize_transformation(T, ...)`
+------------------------------------------------------------
+
+"Das ist unsere 3D-Visualisierung aus Seminar 1.
+
+Sie zeichnet:
+
+- den Basisframe am Ursprung
+- den transformierten Frame am Punkt T(1:3,4)
+- Achsen als Pfeile
+
+Und sie kann wahlweise eine vorhandene Achse nutzen oder eine neue Figur
+anlegen.
+
+In Seminar 3 nutzen wir sie in Abschnitt 4, um die Pose des Endeffektors
+in 3D sichtbar zu machen." 
+
+
+------------------------------------------------------------
+Abschluss
+------------------------------------------------------------
+
+"Damit ist Seminar 3 rund.
+
+Die Kernbotschaft ist:
+
+Singularitäten sind nicht nur ein theoretisches Konzept, sondern sie
+zeigen sich direkt in:
+
+- Rangverlust und Singulärwerten der Jacobi
+- sehr großer Konditionszahl
+- kollabierender Geschwindigkeits-Ellipse
+- instabiler IK mit Pseudoinverse
+
+Und DLS ist eine einfache, robuste Gegenmaßnahme, die wir mit einem
+Parameter λ kontrollieren können." 
